@@ -1530,6 +1530,7 @@ canvas#mdChart{display:block;width:100% !important}
       <button class="pf-btn" onclick="marketAnalysisFilter('accumulation')" id="filter-accumulation" style="padding:6px 14px;font-size:12px">تجميع <span id="count-accumulation">(0)</span></button>
       <button class="pf-btn" onclick="marketAnalysisFilter('oversold')" id="filter-oversold" style="padding:6px 14px;font-size:12px">بيع مفرط <span id="count-oversold">(0)</span></button>
       <button class="pf-btn" onclick="marketAnalysisFilter('momentum')" id="filter-momentum" style="padding:6px 14px;font-size:12px">زخم إيجابي <span id="count-momentum">(0)</span></button>
+      <button class="pf-btn" onclick="marketAnalysisFilter('bullish')" id="filter-bullish" style="padding:6px 14px;font-size:12px">📈 توقع صاعد <span id="count-bullish">(0)</span></button>
     </div>
 
     <!-- Results -->
@@ -1692,7 +1693,7 @@ canvas#mdChart{display:block;width:100% !important}
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-02-v16 — التغير اليومي (نسبة + مقدار) في شريط المؤشر العام أعلى الصفحة', 'color:#7c3aed;font-weight:bold;font-size:12px');
+console.log('%c[تداول بلس] البناء: 2026-07-02-v19 — بطاقات «توقع صاعد» كاملة: إشارات + أهداف + وقف خسارة + أزرار المحفظة/المراقبة', 'color:#7c3aed;font-weight:bold;font-size:12px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -5043,6 +5044,11 @@ function _renderOpportunities(filter, histAll) {
     momentum: analyzedStocks.filter(s =>
       s.hist ? s.hist.slopePct > 0 : (s.chg !== null && s.chg > 0.5)
     ).length,
+    /* توقع صاعد: توقع المحرك التاريخي إيجابي (predScore ≥ 1)
+       + تأكيد بحد أدنى من السيولة حتى لا تتصدر أسهم خاملة */
+    bullish: analyzedStocks.filter(s =>
+      s.hist && s.hist.predScore >= 1 && s.vol > 300000
+    ).length,
   };
 
   // تحديث العدادات في الواجهة
@@ -5051,6 +5057,7 @@ function _renderOpportunities(filter, histAll) {
   document.getElementById('count-accumulation').textContent = `(${counts.accumulation})`;
   document.getElementById('count-oversold').textContent = `(${counts.oversold})`;
   document.getElementById('count-momentum').textContent = `(${counts.momentum})`;
+  document.getElementById('count-bullish').textContent = `(${counts.bullish})`;
 
   // التصفية حسب الفلتر
   let filtered = analyzedStocks;
@@ -5077,10 +5084,18 @@ function _renderOpportunities(filter, histAll) {
     filtered = analyzedStocks.filter(s =>
       s.hist ? s.hist.slopePct > 0 : (s.chg !== null && s.chg > 0.5)
     );
+  } else if (filter === 'bullish') {
+    filtered = analyzedStocks.filter(s =>
+      s.hist && s.hist.predScore >= 1 && s.vol > 300000
+    );
+    /* ترتيب خاص: الأقوى توقعاً أولاً، وعند التساوي الأعلى نقاطاً إجمالية */
+    filtered.sort((a, b) =>
+      (b.hist.predScore - a.hist.predScore) || (b.score - a.score)
+    );
   }
 
-  // ترتيب حسب النقاط
-  filtered.sort((a, b) => b.score - a.score);
+  // ترتيب حسب النقاط (توقع صاعد له ترتيبه الخاص أعلاه)
+  if (filter !== 'bullish') filtered.sort((a, b) => b.score - a.score);
 
   // عرض أفضل 20
   const topStocks = filtered.slice(0, 20);
@@ -5097,6 +5112,83 @@ function _renderOpportunities(filter, histAll) {
     if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
     return v.toLocaleString();
   };
+
+  /* ═══ عرض خاص لفلتر «توقع صاعد»: بطاقات مرتّبة بقوة التوقع ═══ */
+  if (filter === 'bullish') {
+    resultsEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">
+        ${topStocks.map((s, i) => {
+          const h = s.hist;
+          const strength = Math.min(100, Math.round(h.predScore / 5 * 100));
+          const top3 = i < 3;
+          const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+          const chgN = s.chg;
+          const chgPill = chgN !== null ? `
+            <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;
+              background:${chgN >= 0 ? 'rgba(74,222,128,.12)' : 'rgba(248,113,113,.12)'};
+              color:${chgN >= 0 ? '#4ade80' : '#f87171'}">
+              ${chgN >= 0 ? '▲ +' : '▼ '}${chgN.toFixed(2)}%</span>` : '';
+          const chip = (label, val, clr) => `
+            <span style="font-size:10.5px;padding:3px 9px;border-radius:20px;
+              background:rgba(255,255,255,.05);border:1px solid var(--bdr);color:var(--txt-2)">
+              ${label} <strong style="color:${clr}">${val}</strong></span>`;
+          return `
+          <div onclick="marketStockAnalysis('${s.sym}','${(s.name || '').replace(/'/g, "\\'")}')"
+            onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.35)'"
+            onmouseout="this.style.transform='';this.style.boxShadow=''"
+            style="position:relative;cursor:pointer;border-radius:14px;padding:14px;transition:all .18s;
+              background:${top3 ? 'linear-gradient(150deg,rgba(74,222,128,.10),var(--surf-alt) 60%)' : 'var(--surf-alt)'};
+              border:1px solid ${top3 ? 'rgba(74,222,128,.4)' : 'var(--bdr)'}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:${top3 ? '19px' : '11.5px'};font-weight:800;color:var(--txt-m)">${rankIcon}</span>
+              <span style="font-size:11px;font-weight:700;color:${h.predColor}">${h.predIcon} ${h.predLabel}</span>
+            </div>
+            <div style="font-weight:800;font-size:14.5px;line-height:1.3">${s.name}</div>
+            <div style="font-size:11px;color:var(--txt-m);margin-bottom:8px">${s.sym}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+              <span style="font-size:20px;font-weight:800">${fmt(s.price)}</span>
+              <span style="font-size:10.5px;color:var(--txt-m)">ر.س</span>
+              ${chgPill}
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt-m);margin-bottom:3px">
+              <span>قوة التوقع</span><span style="font-weight:700;color:#4ade80">${strength}%</span>
+            </div>
+            <div style="height:6px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;margin-bottom:10px">
+              <div style="width:${strength}%;height:100%;border-radius:4px;
+                background:linear-gradient(90deg,#166534,#22c55e,#4ade80)"></div>
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px">
+              ${chip('RSI', h.rsi, h.rsi < 30 ? '#4ade80' : h.rsi > 70 ? '#f87171' : 'var(--txt)')}
+              ${h.entryPoint !== null ? chip('🎯 دخول', fmt(h.entryPoint), '#4ade80') : ''}
+              ${chip('🔻', fmt(h.support), '#f87171')}
+              ${chip('🔺', fmt(h.resistance), '#4ade80')}
+              ${chip('📊', fmtVol(s.vol), 'var(--txt)')}
+              ${chip('⭐', s.score, s.score >= 5 ? '#4ade80' : s.score >= 2 ? '#fbbf24' : '#f87171')}
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px">
+              ${s.signals.slice(0, 4).map(sig =>
+                `<span style="font-size:9.5px;background:rgba(255,255,255,.05);padding:2px 7px;border-radius:4px;color:var(--txt-m)">${sig}</span>`
+              ).join('')}
+            </div>
+            ${techEvalHTML(s)}
+            <div style="display:flex;gap:6px;margin-top:10px" onclick="event.stopPropagation()">
+              <button onclick="closeAllOverlays();pfOpenBuyModal('${s.sym}','${(s.name || '').replace(/'/g, "\\'")}')"
+                style="flex:1;padding:8px 6px;border-radius:10px;border:none;
+                  background:linear-gradient(135deg,#166534 0%,#22c55e 100%);
+                  color:#fff;font-size:11px;font-weight:700;cursor:pointer">📈 للمحفظة</button>
+              <button onclick="wlAddFromOpportunity('${s.sym}','${(s.name || '').replace(/'/g, "\\'")}')"
+                style="flex:1;padding:8px 6px;border-radius:10px;
+                  border:1.5px solid rgba(99,102,241,.5);background:rgba(99,102,241,.12);
+                  color:#a5b4fc;font-size:11px;font-weight:700;cursor:pointer">👁️ للمراقبة</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:14px;font-size:10.5px;color:var(--txt-m);text-align:center;line-height:1.7">
+        ⚠️ مؤشرات حسابية من البيانات التاريخية للاسترشاد فقط — ليست توصية شراء، والسوق قد يتحرك عكس التوقع.
+      </div>`;
+    return;
+  }
 
   resultsEl.innerHTML = topStocks.map(s => {
     const scoreColor = s.score >= 5 ? '#4ade80' : s.score >= 2 ? '#fbbf24' : '#f87171';
