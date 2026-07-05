@@ -1309,32 +1309,32 @@ canvas#mdChart{display:block;width:100% !important}
 
   <!-- Stats Cards -->
   <div class="stats-row">
-    <div class="stat-card">
+    <div class="stat-card" title="عدد الشركات المدرجة التي يتابعها التطبيق في السوق السعودي">
       <div class="stat-ico ic-b">🏦</div>
       <div>
         <div class="stat-lbl">إجمالي الأسهم</div>
         <div class="stat-val" id="sTotal">—</div>
       </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-ico ic-g">✅</div>
+    <div class="stat-card" title="أسهم سعرها الحالي أعلى من إغلاق أمس (نسبة تغير موجبة)">
+      <div class="stat-ico ic-g">📈</div>
       <div>
-        <div class="stat-lbl">EPS موجب</div>
-        <div class="stat-val g" id="sEpsP">—</div>
+        <div class="stat-lbl">صاعدة اليوم</div>
+        <div class="stat-val g" id="sUp">—</div>
       </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-ico ic-r">⚠️</div>
+    <div class="stat-card" title="أسهم سعرها الحالي أدنى من إغلاق أمس (نسبة تغير سالبة)">
+      <div class="stat-ico ic-r">📉</div>
       <div>
-        <div class="stat-lbl">EPS سالب</div>
-        <div class="stat-val r" id="sEpsN">—</div>
+        <div class="stat-lbl">هابطة اليوم</div>
+        <div class="stat-val r" id="sDown">—</div>
       </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-ico ic-y">📊</div>
+    <div class="stat-card" title="أسهم تتداول عند سعر إغلاق أمس نفسه (تغير 0%) — لم تتحرك بعد أو تداولها ضعيف">
+      <div class="stat-ico ic-y">⚖️</div>
       <div>
-        <div class="stat-lbl">لديها مكرر P/E</div>
-        <div class="stat-val y" id="sPE">—</div>
+        <div class="stat-lbl">بلا تغيير</div>
+        <div class="stat-val y" id="sFlat">—</div>
       </div>
     </div>
   </div>
@@ -1744,7 +1744,10 @@ canvas#mdChart{display:block;width:100% !important}
   function build() {
     const btn = document.createElement('button');
     btn.textContent = '🐞 السجل ';
+    btn.id = 'tpDebugBtn';
     btn.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483000;display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:20px;border:1px solid rgba(255,255,255,.15);background:rgba(18,24,34,.92);color:#e5e9f0;font:600 12px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.4);backdrop-filter:blur(6px)';
+    /* السجل للأدمن فقط — يُظهره authUpdateUI عند دخول حساب أدمن */
+    btn.style.display = 'none';
     const badge = document.createElement('span');
     badge.style.cssText = 'min-width:18px;padding:1px 6px;border-radius:10px;background:rgba(255,255,255,.14);font-weight:700;font-size:11px';
     badge.textContent = '0'; btn.appendChild(badge); panel.badge = badge;
@@ -1805,7 +1808,7 @@ canvas#mdChart{display:block;width:100% !important}
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-04-v48 — تمييز الزائر عن المسجّل في طلبات الدعم: المسجّل ردّ داخلي، الزائر «رد بالإيميل»', 'color:#7c3aed;font-weight:bold;font-size:12px');
+console.log('%c[تداول بلس] البناء: 2026-07-04-v57 — رابط التأكيد يعود للمنصة (emailRedirectTo) + شاشة «انتقل إلى المنصة»', 'color:#7c3aed;font-weight:bold;font-size:12px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -1829,6 +1832,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let sb = null;        // عميل Supabase
 let sbUser = null;    // المستخدم الحالي (null = غير متصل)
+let _sbToken = null;  // رمز الجلسة (لنداء الوداع عند إغلاق التبويب)
 let authMode = 'login';
 
 /* التقاط العودة من رابط تأكيد البريد (قبل أن ينظف Supabase الرابط) */
@@ -1842,7 +1846,7 @@ function _authShowWelcome() {
     <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:18px;
                 max-width:360px;width:100%;padding:32px;text-align:center">
       <div style="font-size:54px;margin-bottom:12px">🎉</div>
-      <div style="font-size:19px;font-weight:800;margin-bottom:8px">تم تأكيد حسابك!</div>
+      <div style="font-size:19px;font-weight:800;margin-bottom:8px">تم تأكيد الحساب!</div>
       <div style="font-size:13px;color:var(--txt-m);margin-bottom:22px;line-height:1.8">
         بريدك مُوثّق وأنت الآن متصل بحسابك<br>وستبقى متصلاً تلقائياً على هذا الجهاز
       </div>
@@ -1850,7 +1854,7 @@ function _authShowWelcome() {
         style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;
                font-weight:800;font-size:15px;color:#fff;
                background:linear-gradient(135deg,#166534 0%,#22c55e 100%)">
-        🚀 ابدأ استخدام تداول بلس
+        🚀 انتقل إلى المنصة
       </button>
     </div>`;
   document.body.appendChild(d);
@@ -1868,6 +1872,7 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
   /* الجلسة محفوظة تلقائياً في المتصفح وتتجدد ذاتياً — يبقى المستخدم متصلاً */
   sb.auth.getSession().then(({ data }) => {
     sbUser = (data && data.session) ? data.session.user : null;
+    _sbToken = (data && data.session) ? data.session.access_token : null;
     authUpdateUI();
     syncProfileAndRestrictions();
     /* تسجيل الزيارة (مرة لكل جلسة متصفح) — للإحصاءات في لوحة الأدمن */
@@ -1880,6 +1885,7 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
   });
   sb.auth.onAuthStateChange((event, session) => {
     sbUser = session ? session.user : null;
+    _sbToken = session ? session.access_token : null;
     /* عند تسجيل الخروج: امسح المحفظة والمراقبة من المتصفح
        حتى لا يرثها الحساب التالي أو يراها زائر على نفس الجهاز */
     if (event === 'SIGNED_OUT') clearLocalUserData();
@@ -1943,6 +1949,9 @@ function authUpdateUI() {
   /* عنصر لوحة الأدمن في القائمة + بوابة الدخول/الصيانة */
   const adm = document.getElementById('authMenuAdmin');
   if (adm) adm.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'block' : 'none';
+  /* زر سجل التشخيص 🐞: للأدمن فقط */
+  const dbg = document.getElementById('tpDebugBtn');
+  if (dbg) dbg.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'flex' : 'none';
   if (typeof _updateGate === 'function') _updateGate();
 }
 
@@ -2122,7 +2131,13 @@ async function authSubmit() {
   btn.disabled = true; btn.textContent = '⏳ لحظات...';
   try {
     if (authMode === 'signup') {
-      const { data, error } = await sb.auth.signUp({ email, password: pass });
+      const { data, error } = await sb.auth.signUp({
+        email,
+        password: pass,
+        /* وجهة العودة بعد ضغط رابط التأكيد — صفحة التطبيق نفسها
+           (يجب أن تكون مدرجة في Redirect URLs بإعدادات Supabase) */
+        options: { emailRedirectTo: location.origin + location.pathname },
+      });
       if (error) { authShowMsg(authTranslateError(error.message), 'error'); return; }
       if (data.session) {
         authShowMsg('✅ تم إنشاء الحساب وتسجيل الدخول!', 'ok');
@@ -2145,6 +2160,9 @@ async function authSubmit() {
 }
 
 async function authSignOut() {
+  /* وسم غير متصل قبل إنهاء الجلسة (بعدها لا صلاحية للتحديث) */
+  await _markOffline();
+  if (_presenceTimer) { clearInterval(_presenceTimer); _presenceTimer = null; }
   if (sb) await sb.auth.signOut();
   sbUser = null;
   authUpdateUI();
@@ -2407,6 +2425,50 @@ async function userOpenMessages() {
   }
 }
 
+/* ═══ نبضة الحضور: تحدّث last_seen كل دقيقتين ليعرف الأدمن من داخل التطبيق الآن ═══ */
+let _presenceTimer = null;
+function _startPresenceHeartbeat() {
+  if (_presenceTimer || !sb || !sbUser) return;
+  const beat = () => {
+    if (!sb || !sbUser) return;
+    try {
+      sb.from('profiles').update({ last_seen: new Date().toISOString() })
+        .eq('id', sbUser.id).then(() => {}, () => {});
+    } catch (e) {}
+  };
+  _presenceTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') beat();
+  }, 120000);
+}
+
+/* وسم المستخدم غير متصل فوراً (بإرجاع آخر ظهوره 10 دقائق) */
+async function _markOffline() {
+  if (!sb || !sbUser) return;
+  const past = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  try {
+    await sb.from('profiles').update({ last_seen: past }).eq('id', sbUser.id);
+  } catch (e) {}
+}
+
+/* نداء الوداع عند إغلاق التبويب/المتصفح — طلب keepalive يكمل بعد الإغلاق */
+window.addEventListener('pagehide', () => {
+  if (!sb || !sbUser || !_sbToken) return;
+  try {
+    const past = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${sbUser.id}`, {
+      method: 'PATCH',
+      keepalive: true,
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + _sbToken,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ last_seen: past }),
+    }).catch(() => {});
+  } catch (e) {}
+});
+
 /* قيود المستخدم الحالي (فردية — يضبطها الأدمن لكل مستخدم) */
 let userRestrictions = {};
 
@@ -2416,6 +2478,7 @@ async function syncProfileAndRestrictions() {
   cloudLoadUserData();
   checkUserReplies();
   checkAdminSupport();
+  _startPresenceHeartbeat();
   /* سجّل ملف المستخدم (ليظهر في قائمة الأدمن) */
   try {
     await sb.from('profiles').upsert({
@@ -2599,7 +2662,9 @@ function authOpenAdmin() {
         style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;
                border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
 
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin:16px 0 6px">👥 المستخدمون — تحكم فردي وجماعي</div>
+      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin:16px 0 6px">
+        👥 المستخدمون <span id="admUsersCount" style="color:var(--txt-m);font-weight:600"></span>
+      </div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
         <label style="font-size:11px;color:var(--txt-m);display:flex;align-items:center;gap:4px;cursor:pointer">
           <input type="checkbox" id="admSelAll"
@@ -2788,6 +2853,57 @@ function adminSupportDelete(id, email) {
   document.body.appendChild(d);
 }
 
+/* ── رسالة مباشرة من الأدمن لأي مستخدم — تصله في «رسائلي» مع التنبيه ── */
+function adminComposeMessage(email) {
+  const old = document.getElementById('adminMsgPanel');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'adminMsgPanel';
+  el.style.cssText = 'position:fixed;inset:0;z-index:993;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;padding:20px';
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  el.innerHTML = `
+    <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:18px;
+                width:100%;max-width:380px;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:15px;font-weight:800">✉️ رسالة من الإدارة</div>
+        <button onclick="document.getElementById('adminMsgPanel').remove()"
+          style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surf-alt);color:var(--txt);cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--txt-m);direction:ltr;text-align:left;margin-bottom:12px">${email}</div>
+      <textarea id="admMsgTxt" rows="5" maxlength="500" placeholder="اكتب رسالتك للمستخدم..."
+        oninput="document.getElementById('admMsgCount').textContent = '(' + this.value.length + '/500)'"
+        style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;resize:none;
+               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);
+               font-size:13px;outline:none;font-family:inherit"></textarea>
+      <div style="font-size:10px;color:var(--txt-m);text-align:left;margin:4px 0 12px" id="admMsgCount">(0/500)</div>
+      <button onclick="adminSendMessage('${email}')" style="width:100%;padding:12px;border-radius:11px;
+        border:none;cursor:pointer;font-weight:800;font-size:13.5px;color:#fff;
+        background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%)">📤 إرسال — يصله في «رسائلي» فوراً</button>
+    </div>`;
+  document.body.appendChild(el);
+  document.getElementById('admMsgTxt').focus();
+}
+
+async function adminSendMessage(email) {
+  const txt = document.getElementById('admMsgTxt').value.trim();
+  if (!txt) { showToast('⚠️ اكتب الرسالة أولاً'); return; }
+  /* تُحفظ كسجل دعم من نوع «رسالة من الإدارة» مع الرد جاهزاً —
+     فتظهر للمستخدم في «رسائلي» ويصله التنبيه المنبثق والنقطة الحمراء */
+  const { error } = await sb.from('support_requests').insert({
+    email,
+    req_type: 'رسالة من الإدارة',
+    subject: '📩 رسالة من إدارة تداول بلس',
+    reply: txt,
+    replied_at: new Date().toISOString(),
+    status: 'done',
+  });
+  if (error) { _admErr(error, 'فشل الإرسال'); return; }
+  showToast('✅ أُرسلت الرسالة إلى ' + email);
+  const p = document.getElementById('adminMsgPanel');
+  if (p) p.remove();
+  adminLoadSupport();
+}
+
 async function adminSupportDeleteConfirmed(id) {
   const c = document.getElementById('admDelConfirm');
   if (c) c.remove();
@@ -2845,6 +2961,10 @@ async function adminLoadUsers() {
     _admUsers = users || [];
     _admRestr = {};
     (restr || []).forEach(r => { _admRestr[r.email] = r; });
+    /* العدّاد: إجمالي المسجلين + كم منهم داخل التطبيق الآن */
+    const onlineNow = _admUsers.filter(u => _isOnline(u.last_seen)).length;
+    const cnt = document.getElementById('admUsersCount');
+    if (cnt) cnt.textContent = `(${_admUsers.length} مسجّل · 🟢 ${onlineNow} متصل الآن)`;
     const sEl = document.getElementById('admUserSearch');
     adminRenderUsers(sEl ? sEl.value : '');
   } catch (e) {
@@ -2859,6 +2979,21 @@ async function adminLoadUsers() {
       <code style="font-size:9.5px;direction:ltr;display:block;text-align:left;margin-top:4px;
         color:#f87171;word-break:break-all">${msg.slice(0, 160)}</code></div>`;
   }
+}
+
+/* حالة الحضور: متصل الآن إن كانت نبضته خلال آخر 5 دقائق */
+function _isOnline(lastSeen) {
+  if (!lastSeen) return false;
+  return (Date.now() - new Date(lastSeen).getTime()) < 5 * 60 * 1000;
+}
+function _lastSeenText(lastSeen) {
+  if (!lastSeen) return 'لم يُرصد';
+  const mins = Math.floor((Date.now() - new Date(lastSeen).getTime()) / 60000);
+  if (mins < 5) return 'متصل الآن';
+  if (mins < 60) return `آخر ظهور قبل ${mins} دقيقة`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `آخر ظهور قبل ${hrs} ساعة`;
+  return `آخر ظهور قبل ${Math.floor(hrs / 24)} يوم`;
 }
 
 /* عرض قائمة المستخدمين مع تصفية البحث */
@@ -2904,13 +3039,22 @@ function adminRenderUsers(query) {
             style="width:15px;height:15px;cursor:pointer;flex-shrink:0">`}
           <div style="min-width:0">
             <div style="font-size:12px;color:var(--txt);direction:ltr;text-align:left;
-                        overflow:hidden;text-overflow:ellipsis">${u.email}${isMe ? ' 👑' : ''}</div>
+                        overflow:hidden;text-overflow:ellipsis">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                    background:${_isOnline(u.last_seen) ? '#22c55e' : 'rgba(255,255,255,.2)'};
+                    ${_isOnline(u.last_seen) ? 'box-shadow:0 0 5px #22c55e;' : ''}margin-left:4px"></span>${u.email}${isMe ? ' 👑' : ''}</div>
             <div style="font-size:10px;color:${r.blocked ? '#f87171' : 'var(--txt-m)'}">${status}</div>
+            <div style="font-size:9.5px;color:${_isOnline(u.last_seen) ? '#4ade80' : 'var(--txt-m)'}">${_lastSeenText(u.last_seen)}</div>
           </div>
         </div>
-        ${isMe ? '' : `<button onclick="adminEditUser('${u.email}')"
-          style="padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);flex-shrink:0;
-                 background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">إدارة</button>`}
+        ${isMe ? '' : `<div style="display:flex;gap:4px;flex-shrink:0">
+          <button onclick="adminComposeMessage('${u.email}')" title="إرسال رسالة"
+            style="padding:6px 9px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
+                   background:rgba(96,165,250,.1);color:#93c5fd;font-size:11px;font-weight:700;cursor:pointer">✉️</button>
+          <button onclick="adminEditUser('${u.email}')"
+            style="padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);
+                   background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">إدارة</button>
+        </div>`}
       </div>`;
     }).join('');
 }
@@ -3286,7 +3430,7 @@ function rowHTML(s, isTasi) {
     <td><span class="lo">${fmtPrice(s.low)}</span></td>
     <td>${fmtVol(s.vol)}</td>
     <td>${isTasi ? dashSpan() : fmtDiv(s.div)}</td>
-    <td>${fmtMktCap(s.mktcap)}</td>
+    <td>${isTasi ? dashSpan() : fmtMktCap(s.mktcap)}</td>
   </tr>`;
 }
 
@@ -3308,9 +3452,11 @@ function buildSectors() {
 ───────────────────────────────────── */
 function updateStats() {
   document.getElementById('sTotal').textContent = rows.length;
-  document.getElementById('sEpsP').textContent  = rows.filter(r => r.epsN !== null && r.epsN > 0).length;
-  document.getElementById('sEpsN').textContent  = rows.filter(r => r.epsN !== null && r.epsN < 0).length;
-  document.getElementById('sPE').textContent    = rows.filter(r => r.peN  !== null && r.peN  > 0).length;
+  /* حركة السوق اليومية — من عمود نسبة التغير الحي */
+  const withChg = rows.filter(r => r.chg !== null && r.chg !== undefined);
+  document.getElementById('sUp').textContent   = withChg.filter(r => r.chg > 0).length;
+  document.getElementById('sDown').textContent = withChg.filter(r => r.chg < 0).length;
+  document.getElementById('sFlat').textContent = withChg.filter(r => r.chg === 0).length;
 }
 
 /* ─────────────────────────────────────
@@ -3340,7 +3486,8 @@ function updateTasiBar(t) {
   document.getElementById('tHigh').textContent   = fmtPrice(t.high);
   document.getElementById('tLow').textContent    = fmtPrice(t.low);
   document.getElementById('tVol').textContent    = fmtVol(t.vol);
-  document.getElementById('tMktCap').textContent = fmtMktCap(t.mktcap);
+  /* القيمة السوقية للمؤشر محجوبة مؤقتاً حتى تتوفر القيمة الصحيحة */
+  document.getElementById('tMktCap').textContent = '—';
   document.getElementById('tasiBar').classList.add('on');
 }
 
@@ -4422,7 +4569,7 @@ function wlRender() {
         </div>
         <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px">
           <div style="color:rgba(255,255,255,.45);margin-bottom:3px">💰 القيمة السوقية</div>
-          <div style="color:#c4b5fd;font-weight:700">${mktcap ? (mktcap/1e9).toFixed(1) + ' مليار' : '—'}</div>
+          <div style="color:#c4b5fd;font-weight:700">—</div>
         </div>
       </div>
       ${pos !== null ? `
@@ -5238,7 +5385,7 @@ function pfAnalyzeRenderHist(histData, cur, highN, lowN, volN, fmt) {
     <!-- الأهداف المحسوبة من البيانات التاريخية -->
     <div style="margin-bottom:14px">
       <div style="font-size:12px;font-weight:700;color:#a78bfa;margin-bottom:8px">📈 أهداف محسوبة من البيانات التاريخية (${prices.length} يوم)</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:6px">
         <div style="background:#0d2a1a;border:1px solid #166534;border-radius:8px;padding:8px;text-align:center">
           <div style="font-size:11px;font-weight:700;color:#4ade80">${fmt(t1)}</div>
           <div style="font-size:10px;color:#86efac;margin-top:2px">الهدف القريب</div>
@@ -5285,7 +5432,7 @@ function openTASIAnalysis() {
   const fmtN   = v => v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
 
   document.getElementById('anTitle').textContent = 'تحليل · المؤشر العام TASI';
-  document.getElementById('anSub').textContent   = 'Tadawul All Share Index';
+  document.getElementById('anSub').textContent   = 'TADAWUL marketasINDEX';
 
   // ── مستويات الدعم والمقاومة من 52 أسبوع ──
   const supports = [], resistances = [];
@@ -5335,7 +5482,7 @@ function openTASIAnalysis() {
 
     <!-- رأس مميز للمؤشر -->
     <div class="an-section" style="background:linear-gradient(135deg,#0a1628 0%,#0d2240 60%,#0f2a1a 100%);border-color:#1e4a6a;text-align:center;padding:20px">
-      <div style="font-size:11px;color:#7ab8e8;font-weight:700;letter-spacing:1px;margin-bottom:8px">📊 TADAWUL ALL SHARE INDEX</div>
+      <div style="font-size:11px;color:#7ab8e8;font-weight:700;letter-spacing:1px;margin-bottom:8px">📊 TADAWUL MARKETAS INDEX</div>
       <div style="font-size:36px;font-weight:800;color:#fff;margin-bottom:6px;font-family:'IBM Plex Sans Arabic',sans-serif">${fmt(cur)}</div>
       <div style="font-size:13px;color:#7ab8e8">نقطة</div>
       <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -5401,7 +5548,7 @@ function openTASIAnalysis() {
     <!-- الأهداف والدعم -->
     <div class="an-section">
       <div class="an-sec-title">📈 أهداف المؤشر (نقاط)</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:6px">
         <div style="background:#0d2a1a;border:1px solid #166534;border-radius:8px;padding:8px;text-align:center">
           <div style="font-size:12px;font-weight:700;color:#4ade80">${fmt(t1)}</div>
           <div style="font-size:10px;color:#86efac;margin-top:2px">الهدف القريب</div>
@@ -5466,7 +5613,7 @@ function openTASIAnalysis() {
 
     <!-- ملاحظة -->
     <div style="background:var(--surf-alt);border-radius:10px;padding:12px 14px;font-size:11px;color:var(--txt-m);line-height:1.7;border-right:3px solid #f4a20a">
-      ⚠️ التحليل الأساسي أعلاه مبني على بيانات أعلى/أدنى سعر لـ 52 أسبوع. قسم "التحليل الفني التاريخي" أدناه يحاول جلب بيانات يومية فعلية من Google Sheets أو Yahoo Finance لتحليل أدق.
+      ⚠️ التحليل الأساسي أعلاه مبني على بيانات أعلى/أدنى سعر لـ 52 أسبوع. قسم "التحليل الفني التاريخي" أدناه يحاول جلب بيانات يومية فعلية لتحليل أدق.
     </div>
   `;
 
@@ -8133,7 +8280,7 @@ function _fsSendViaForm(email, reqType, subject) {
     document.body.appendChild(ifr);
   }
   const form = document.createElement('form');
-  form.action = 'https://formsubmit.co/' + ADMIN_EMAILS[0];
+  form.action = 'https://formsubmit.co/' + SUPPORT_EMAIL;
   form.method = 'POST';
   form.target = 'fsFrame';
   form.style.display = 'none';
