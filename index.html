@@ -1262,6 +1262,9 @@ canvas#mdChart{display:block;width:100% !important}
     <button class="nav-btn" data-tab="analysis" onclick="switchTab('analysis',this)">
       <span class="nav-ico">⚡</span> تحليل السوق
     </button>
+    <button class="nav-btn" data-tab="admin" id="navAdminBtn" style="display:none" onclick="switchTab('admin',this)">
+      <span class="nav-ico">⚙️</span> الأدمن
+    </button>
   </nav>
 
   <!-- TASI Ticker -->
@@ -1492,6 +1495,11 @@ canvas#mdChart{display:block;width:100% !important}
     <div class="coming-soon-title">جميع الأسهم</div>
     <div class="coming-soon-sub">عرض موسّع لجميع أسهم السوق السعودي مع إمكانية التصفية والمقارنة</div>
   </div>
+</div>
+
+<!-- ⚙️ قسم الأدمن المستقل -->
+<div class="section-panel" id="panel-admin">
+  <div id="adminSectionWrap" style="max-width:1200px;margin:0 auto;padding:0 12px 40px"></div>
 </div>
 
 <!-- تحليل السوق -->
@@ -1949,6 +1957,17 @@ function authUpdateUI() {
   /* عنصر لوحة الأدمن في القائمة + بوابة الدخول/الصيانة */
   const adm = document.getElementById('authMenuAdmin');
   if (adm) adm.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'block' : 'none';
+  /* زر قسم الأدمن في شريط التنقل */
+  const navAdm = document.getElementById('navAdminBtn');
+  if (navAdm) {
+    const okAdm = (typeof isAdmin === 'function' && isAdmin());
+    navAdm.style.display = okAdm ? '' : 'none';
+    /* لو خرج الأدمن وهو داخل القسم → العودة للرئيسية */
+    if (!okAdm && navAdm.classList.contains('active')) {
+      const homeBtn = document.querySelector('.nav-btn[data-tab="home"]');
+      if (homeBtn) switchTab('home', homeBtn);
+    }
+  }
   /* زر سجل التشخيص 🐞: للأدمن فقط */
   const dbg = document.getElementById('tpDebugBtn');
   if (dbg) dbg.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'flex' : 'none';
@@ -2525,6 +2544,7 @@ function applyAppSettings() {
     ...((userRestrictions && userRestrictions.hidden_tabs) || []),
   ]);
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
+    if (btn.dataset.tab === 'admin') { btn.style.display = isAdmin() ? '' : 'none'; return; }
     btn.style.display = hidden.has(btn.dataset.tab) ? 'none' : '';
   });
   /* العرض الضبابي لقسمي المراقبة وتحليل السوق (قيد فردي من الأدمن) */
@@ -2625,8 +2645,15 @@ function _updateGate() {
 function authOpenAdmin() {
   authMenuHide();
   if (!isAdmin()) { showToast('⛔ هذه اللوحة للأدمن فقط'); return; }
-  const old = document.getElementById('adminPanel');
-  if (old) old.remove();
+  const btn = document.getElementById('navAdminBtn');
+  if (btn) btn.style.display = '';
+  switchTab('admin', btn);
+}
+
+/* ═══ ⚙️ قسم الأدمن المستقل (بديل النافذة المنبثقة الضيقة) ═══ */
+function renderAdminSection() {
+  const wrap = document.getElementById('adminSectionWrap');
+  if (!wrap || !isAdmin()) return;
   const s = appSettings || {};
   const tabs = [
     { k: 'watchlist', t: '📁 المحفظة' },
@@ -2635,97 +2662,110 @@ function authOpenAdmin() {
     { k: 'all',       t: '📊 جميع الأسهم' },
     { k: 'analysis',  t: '⚡ تحليل السوق' },
   ];
-  const el = document.createElement('div');
-  el.id = 'adminPanel';
-  el.style.cssText = 'position:fixed;inset:0;z-index:992;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
-  el.onclick = (e) => { if (e.target === el) el.remove(); };
-  const row = 'display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bdr);font-size:13px';
-  el.innerHTML = `
-    <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:18px;
-                width:100%;max-width:430px;max-height:85vh;overflow-y:auto;padding:24px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <div style="font-size:17px;font-weight:800">⚙️ لوحة الأدمن</div>
-        <button onclick="document.getElementById('adminPanel').remove()"
-          style="width:30px;height:30px;border-radius:50%;border:none;background:var(--surf-alt);color:var(--txt);cursor:pointer">✕</button>
+  const row  = 'display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bdr);font-size:13px';
+  const card = 'background:var(--surf);border:1px solid var(--bdr-modal);border-radius:16px;padding:20px';
+  const head = 'font-size:13.5px;font-weight:800;color:#fbbf24;margin-bottom:10px';
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0">
+      <div style="font-size:19px;font-weight:800">⚙️ لوحة الأدمن</div>
+      <button onclick="renderAdminSection()" style="padding:8px 14px;border-radius:9px;border:1px solid var(--bdr);
+        background:var(--surf-alt);color:var(--txt);font-size:12px;font-weight:700;cursor:pointer">🔄 تحديث البيانات</button>
+    </div>
+
+    <style>
+      #adminSectionWrap .admGrid{display:grid;grid-template-columns:minmax(320px,5fr) minmax(320px,7fr);gap:14px;align-items:start}
+      @media (max-width:900px){#adminSectionWrap .admGrid{grid-template-columns:1fr}}
+    </style>
+    <div class="admGrid">
+
+      <!-- العمود الأيمن: الزيارات + طلبات الدعم + الإعدادات -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="${card}">
+        <div style="${head}">📊 الزيارات</div>
+        <div id="admStatsBox" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+             font-size:11px;color:var(--txt-m);text-align:center">⏳ جارٍ الحساب...</div>
+
+        <div style="${head};margin-top:20px">📨 طلبات الدعم <span id="admSupNew"></span></div>
+        <div id="admSupportBox" style="max-height:300px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--bdr);
+             border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m);
+             word-break:break-word;overflow-wrap:anywhere">⏳ جارٍ التحميل...</div>
       </div>
 
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:6px">📊 الزيارات</div>
-      <div id="admStatsBox" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:16px;
-           font-size:11px;color:var(--txt-m);text-align:center">⏳ جارٍ الحساب...</div>
+      <!-- الإعدادات العامة -->
+      <div style="${card}">
+        <div style="${head}">🧩 الأقسام الظاهرة للمستخدمين</div>
+        ${tabs.map(t => `
+          <label style="${row};cursor:pointer">
+            <span>${t.t}</span>
+            <input type="checkbox" id="admTab-${t.k}" ${(s.hiddenTabs || []).includes(t.k) ? '' : 'checked'}
+                   style="width:18px;height:18px;cursor:pointer">
+          </label>`).join('')}
 
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:6px">📨 طلبات الدعم <span id="admSupNew"></span></div>
-      <div id="admSupportBox" style="max-height:200px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--bdr);
-           border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m);margin-bottom:16px;
-           word-break:break-word;overflow-wrap:anywhere">⏳ جارٍ التحميل...</div>
-
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:4px">الأقسام الظاهرة للمستخدمين</div>
-      ${tabs.map(t => `
+        <div style="${head};margin-top:20px">🔐 التحكم بالوصول</div>
         <label style="${row};cursor:pointer">
-          <span>${t.t}</span>
-          <input type="checkbox" id="admTab-${t.k}" ${(s.hiddenTabs || []).includes(t.k) ? '' : 'checked'}
-                 style="width:18px;height:18px;cursor:pointer">
-        </label>`).join('')}
-
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin:16px 0 4px">التحكم بالوصول</div>
-      <label style="${row};cursor:pointer">
-        <span>🔐 إلزام تسجيل الدخول لاستخدام التطبيق</span>
-        <input type="checkbox" id="admRequireLogin" ${s.requireLogin ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
-      </label>
-      <label style="${row};cursor:pointer">
-        <span>🛠️ وضع الصيانة (يغلق التطبيق للجميع عداك)</span>
-        <input type="checkbox" id="admMaintenance" ${s.maintenance ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
-      </label>
-      <input id="admMaintMsg" type="text" placeholder="رسالة الصيانة (اختياري)" value="${(s.maintenanceMsg || '').replace(/"/g, '&quot;')}"
-        style="width:100%;box-sizing:border-box;margin-top:8px;padding:10px 12px;border-radius:9px;
-               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
-
-      <div style="font-size:12px;font-weight:700;color:#fbbf24;margin:16px 0 6px">📢 شريط إعلان أعلى التطبيق</div>
-      <input id="admAnnounce" type="text" placeholder="اتركه فارغاً لإخفاء الشريط" value="${(s.announcement || '').replace(/"/g, '&quot;')}"
-        style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;
-               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
-
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 6px">
-        <div style="font-size:12px;font-weight:700;color:#fbbf24">
-          👥 المستخدمون <span id="admUsersCount" style="color:var(--txt-m);font-weight:600"></span>
-        </div>
-        <button onclick="adminCreateUserModal()" style="padding:6px 12px;border-radius:8px;border:none;
-          background:linear-gradient(135deg,#166534,#22c55e);color:#fff;
-          font-size:11px;font-weight:800;cursor:pointer">➕ إضافة مستخدم</button>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
-        <label style="font-size:11px;color:var(--txt-m);display:flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="checkbox" id="admSelAll"
-            onchange="document.querySelectorAll('.admUserSel').forEach(c=>c.checked=this.checked)"
-            style="width:15px;height:15px;cursor:pointer"> الكل
+          <span>🔐 إلزام تسجيل الدخول لاستخدام التطبيق</span>
+          <input type="checkbox" id="admRequireLogin" ${s.requireLogin ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
         </label>
-        <select id="admBulkPreset" style="flex:1;min-width:130px;padding:7px 8px;border-radius:8px;
-          border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;font-family:inherit">
-          <option value="full">✅ وصول كامل</option>
-          <option value="homeOnly">🏠 الرئيسية فقط (حجب كل الأقسام)</option>
-          <option value="noPortfolio">🔒 بلا محفظة/مراقبة/عوائد</option>
-          <option value="custom">⚙️ تخصيص الأقسام...</option>
-          <option value="popupsOff">🪟 منع النوافذ المنبثقة</option>
-          <option value="popupsOn">🪟 السماح بالنوافذ المنبثقة</option>
-          <option value="block">⛔ إيقاف الحساب</option>
-          <option value="unblock">▶️ إلغاء الإيقاف</option>
-        </select>
-        <button onclick="adminBulkApply()" style="padding:7px 12px;border-radius:8px;border:none;
-          background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1a1a;
-          font-size:11.5px;font-weight:800;cursor:pointer">تطبيق على المحدد</button>
-      </div>
-      <input id="admUserSearch" type="text" placeholder="🔍 ابحث بالإيميل أو الاسم..."
-        oninput="adminRenderUsers(this.value)"
-        style="width:100%;box-sizing:border-box;margin-bottom:6px;padding:9px 12px;border-radius:9px;
-               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);
-               font-size:12px;outline:none;font-family:inherit">
-      <div id="admUsersBox" style="max-height:220px;overflow-y:auto;border:1px solid var(--bdr);
-           border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m)">⏳ جارٍ تحميل المستخدمين...</div>
+        <label style="${row};cursor:pointer">
+          <span>🛠️ وضع الصيانة (يغلق التطبيق للجميع عداك)</span>
+          <input type="checkbox" id="admMaintenance" ${s.maintenance ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
+        </label>
+        <input id="admMaintMsg" type="text" placeholder="رسالة الصيانة (اختياري)" value="${(s.maintenanceMsg || '').replace(/"/g, '&quot;')}"
+          style="width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border-radius:9px;
+                 border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
 
-      <button onclick="adminSave()" style="width:100%;margin-top:18px;padding:13px;border-radius:11px;
-        border:none;cursor:pointer;font-weight:800;font-size:14px;color:#1a1a1a;
-        background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ ونشر على كل المستخدمين</button>
+        <div style="${head};margin-top:20px">📢 شريط إعلان أعلى التطبيق</div>
+        <input id="admAnnounce" type="text" placeholder="اتركه فارغاً لإخفاء الشريط" value="${(s.announcement || '').replace(/"/g, '&quot;')}"
+          style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;
+                 border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
+
+        <button onclick="adminSave()" style="width:100%;margin-top:20px;padding:13px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:14px;color:#1a1a1a;
+          background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ ونشر على كل المستخدمين</button>
+      </div>
+      </div>
+
+      <!-- العمود الأيسر: إدارة المستخدمين -->
+      <div style="${card}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div style="${head};margin-bottom:0">
+            👥 المستخدمون <span id="admUsersCount" style="color:var(--txt-m);font-weight:600"></span>
+          </div>
+          <button onclick="adminCreateUserModal()" style="padding:7px 14px;border-radius:8px;border:none;
+            background:linear-gradient(135deg,#166534,#22c55e);color:#fff;
+            font-size:11.5px;font-weight:800;cursor:pointer">➕ إضافة مستخدم</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:11px;color:var(--txt-m);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="admSelAll"
+              onchange="document.querySelectorAll('.admUserSel').forEach(c=>c.checked=this.checked)"
+              style="width:15px;height:15px;cursor:pointer"> الكل
+          </label>
+          <select id="admBulkPreset" style="flex:1;min-width:150px;max-width:320px;padding:8px;border-radius:8px;
+            border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;font-family:inherit">
+            <option value="full">✅ وصول كامل</option>
+            <option value="homeOnly">🏠 الرئيسية فقط (حجب كل الأقسام)</option>
+            <option value="noPortfolio">🔒 بلا محفظة/مراقبة/عوائد</option>
+            <option value="custom">⚙️ تخصيص الأقسام...</option>
+            <option value="popupsOff">🪟 منع النوافذ المنبثقة</option>
+            <option value="popupsOn">🪟 السماح بالنوافذ المنبثقة</option>
+            <option value="block">⛔ إيقاف الحساب</option>
+            <option value="unblock">▶️ إلغاء الإيقاف</option>
+          </select>
+          <button onclick="adminBulkApply()" style="padding:8px 14px;border-radius:8px;border:none;
+            background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1a1a;
+            font-size:11.5px;font-weight:800;cursor:pointer">تطبيق على المحدد</button>
+          <input id="admUserSearch" type="text" placeholder="🔍 ابحث بالإيميل أو الاسم..."
+            oninput="adminRenderUsers(this.value)"
+            style="flex:2;min-width:180px;box-sizing:border-box;padding:9px 12px;border-radius:9px;
+                   border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);
+                   font-size:12px;outline:none;font-family:inherit">
+        </div>
+        <div id="admUsersBox" style="max-height:640px;overflow-y:auto;border:1px solid var(--bdr);
+             border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m)">⏳ جارٍ تحميل المستخدمين...</div>
+      </div>
+
     </div>`;
-  document.body.appendChild(el);
   adminLoadUsers();
   adminLoadStats();
   adminLoadSupport();
@@ -2777,6 +2817,9 @@ async function adminLoadSupport() {
             <div style="font-size:10px;color:#a78bfa">${isReg ? '👤 مسجّل' : '👁️ زائر'} · ${r.req_type} · ${new Date(r.created_at).toLocaleString('ar', {dateStyle:'short', timeStyle:'short'})}</div>
           </div>
           <div style="display:flex;gap:5px;flex-shrink:0">
+            <button onclick="adminCopyEmail('${r.email}')" title="نسخ الإيميل"
+              style="padding:5px 10px;border-radius:8px;border:1px solid var(--bdr);
+                     background:var(--surf-alt);color:var(--txt);font-size:10.5px;font-weight:700;cursor:pointer">📋</button>
             ${replyBtn}
             <button onclick="adminSupportDelete(${r.id}, '${r.email}')"
               style="padding:5px 10px;border-radius:8px;border:1px solid rgba(248,113,113,.4);
@@ -3159,6 +3202,91 @@ function _lastSeenText(lastSeen) {
   return `آخر ظهور قبل ${Math.floor(hrs / 24)} يوم`;
 }
 
+/* ── 📋 نسخ الإيميل ── */
+async function adminCopyEmail(email) {
+  try {
+    await navigator.clipboard.writeText(email);
+    showToast('📋 نُسخ: ' + email);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = email;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('📋 نُسخ: ' + email); }
+    catch (_) { showToast('❌ تعذر النسخ'); }
+    ta.remove();
+  }
+}
+
+/* ── 🗑️ حذف حساب مستخدم نهائياً (عبر دالة admin-users السحابية) ── */
+function adminDeleteUser(email) {
+  if (ADMIN_EMAILS.includes((email || '').toLowerCase())) { showToast('⛔ لا يمكن حذف حساب أدمن'); return; }
+  const old = document.getElementById('admDelUserPanel');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'admDelUserPanel';
+  el.style.cssText = 'position:fixed;inset:0;z-index:996;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px';
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  el.innerHTML = `
+    <div style="background:var(--surf);border:1px solid rgba(248,113,113,.5);border-radius:16px;
+                width:100%;max-width:360px;padding:22px;text-align:center">
+      <div style="font-size:34px;margin-bottom:8px">🗑️</div>
+      <div style="font-size:15px;font-weight:800;margin-bottom:6px">حذف الحساب نهائياً؟</div>
+      <div style="font-size:12px;color:var(--txt-m);direction:ltr;margin-bottom:6px">${email}</div>
+      <div style="font-size:11.5px;color:#fca5a5;line-height:1.7;margin-bottom:12px">
+        سيُحذف الحساب وقيوده وملفه ولن يستطيع الدخول مجدداً — لا تراجع عن هذا الإجراء.
+      </div>
+      <input id="admDelUserPass" type="password" autocomplete="current-password"
+        placeholder="🔑 كلمة مرور الأدمن للتأكيد"
+        onkeypress="if(event.key==='Enter')adminDeleteUserConfirmed('${email}')"
+        style="width:100%;box-sizing:border-box;margin-bottom:14px;padding:11px 12px;border-radius:10px;
+               border:1.5px solid rgba(248,113,113,.4);background:var(--surf-alt);color:var(--txt);
+               font-size:13px;outline:none;text-align:center;font-family:inherit">
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('admDelUserPanel').remove()"
+          style="flex:1;padding:11px;border-radius:10px;border:1px solid var(--bdr);
+                 background:var(--surf-alt);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer">إلغاء</button>
+        <button onclick="adminDeleteUserConfirmed('${email}')"
+          style="flex:1;padding:11px;border-radius:10px;border:none;cursor:pointer;
+                 font-size:13px;font-weight:800;color:#fff;
+                 background:linear-gradient(135deg,#b91c1c,#ef4444)">🗑️ حذف نهائي</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+async function adminDeleteUserConfirmed(email) {
+  const passEl = document.getElementById('admDelUserPass');
+  const pass = passEl ? passEl.value : '';
+  if (!pass) { showToast('⚠️ أدخل كلمة مرور الأدمن للتأكيد'); if (passEl) passEl.focus(); return; }
+  /* التحقق الفعلي من كلمة المرور بإعادة توثيق جلسة الأدمن */
+  showToast('⏳ جارٍ التحقق من كلمة المرور...');
+  const { error: vErr } = await sb.auth.signInWithPassword({ email: sbUser.email, password: pass });
+  if (vErr) {
+    showToast('❌ كلمة المرور غير صحيحة');
+    if (passEl) { passEl.value = ''; passEl.focus(); }
+    return;
+  }
+  const p = document.getElementById('admDelUserPanel');
+  if (p) p.remove();
+  showToast('⏳ جارٍ حذف ' + email + ' ...');
+  try {
+    await _adminAuthApi({ action: 'delete', email });
+  } catch (e) {
+    const m = String(e && e.message || e);
+    if (/unknown|action|غير معروف|غير مدعوم|not supported|بريد أو كلمة مرور غير صالحة/i.test(m)) {
+      showToast('⚠️ الدالة السحابية القديمة لا تدعم الحذف — انشر نسخة admin-users المحدثة في Supabase ثم أعد المحاولة');
+    } else { _admErr(e, 'فشل حذف الحساب'); }
+    return;
+  }
+  /* تنظيف احتياطي من الجداول (الدالة السحابية تنظف أيضاً) */
+  try { await sb.from('user_restrictions').delete().eq('email', email); } catch (e) {}
+  try { await sb.from('profiles').delete().eq('email', email); } catch (e) {}
+  showToast('✅ حُذف الحساب نهائياً: ' + email);
+  adminLoadUsers();
+}
+
 /* عرض قائمة المستخدمين مع تصفية البحث */
 function adminRenderUsers(query) {
   const box = document.getElementById('admUsersBox');
@@ -3210,14 +3338,20 @@ function adminRenderUsers(query) {
             <div style="font-size:9.5px;color:${_isOnline(u.last_seen) ? '#4ade80' : 'var(--txt-m)'}">${_lastSeenText(u.last_seen)}</div>
           </div>
         </div>
-        ${isMe ? '' : `<div style="display:flex;gap:4px;flex-shrink:0">
-          <button onclick="adminComposeMessage('${u.email}')" title="إرسال رسالة"
+        <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+          <button onclick="adminCopyEmail('${u.email}')" title="نسخ الإيميل"
+            style="padding:6px 9px;border-radius:8px;border:1px solid var(--bdr);
+                   background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">📋</button>
+          ${isMe ? '' : `<button onclick="adminComposeMessage('${u.email}')" title="إرسال رسالة"
             style="padding:6px 9px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
                    background:rgba(96,165,250,.1);color:#93c5fd;font-size:11px;font-weight:700;cursor:pointer">✉️</button>
           <button onclick="adminEditUser('${u.email}')"
             style="padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);
                    background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">إدارة</button>
-        </div>`}
+          <button onclick="adminDeleteUser('${u.email}')" title="حذف الحساب نهائياً"
+            style="padding:6px 9px;border-radius:8px;border:1px solid rgba(248,113,113,.4);
+                   background:rgba(248,113,113,.1);color:#fca5a5;font-size:11px;font-weight:700;cursor:pointer">🗑️</button>`}
+        </div>
       </div>`;
     }).join('');
 }
@@ -3386,8 +3520,6 @@ async function adminSave() {
   if (error) { _admErr(error, 'فشل حفظ الإعدادات'); return; }
   applyAppSettings();
   showToast('✅ حُفظت الإعدادات وسرت على كل المستخدمين');
-  const p = document.getElementById('adminPanel');
-  if (p) p.remove();
 }
 
 /* ─────────────────────────────────────
@@ -5803,6 +5935,9 @@ document.addEventListener('keydown', e => {
    TAB NAVIGATION
 ───────────────────────────────────── */
 function switchTab(tab, btn) {
+  if (tab === 'admin' && !(typeof isAdmin === 'function' && isAdmin())) {
+    showToast('⛔ هذا القسم للأدمن فقط'); return;
+  }
   // update buttons
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -5811,6 +5946,7 @@ function switchTab(tab, btn) {
   document.getElementById('panel-' + tab).classList.add('active');
   if (tab === 'returns') renderReturns();
   if (tab === 'analysis') { marketAnalysisFilter('all'); updateHistCacheStatus(); }
+  if (tab === 'admin' && typeof renderAdminSection === 'function') renderAdminSection();
 }
 
 /* ─────────────────────────────────────
