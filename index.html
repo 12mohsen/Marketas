@@ -1568,6 +1568,7 @@ canvas#mdChart{display:block;width:100% !important}
       <button class="pred-filter"        id="predFilter-imminent" onclick="predSetFilter('imminent')">وشيك <span id="predCount-imminent">(0)</span></button>
       <button class="pred-filter"        id="predFilter-up"       onclick="predSetFilter('up')">صعودي <span id="predCount-up">(0)</span></button>
       <button class="pred-filter"        id="predFilter-down"     onclick="predSetFilter('down')">هبوطي <span id="predCount-down">(0)</span></button>
+      <button class="pred-filter"        id="predFilter-base"     onclick="predSetFilter('base')">🧱 قاعدة <span id="predCount-base">(0)</span></button>
     </div>
 
     <div id="predResults"></div>
@@ -1641,6 +1642,9 @@ canvas#mdChart{display:block;width:100% !important}
        border-bottom:1px solid var(--bdr);direction:ltr;text-align:left"></div>
   <div id="authMenuSub" style="display:none;padding:10px 14px;font-size:11.5px;font-weight:700;
        border-bottom:1px solid var(--bdr);line-height:1.8"></div>
+  <div id="authMenuPay" onclick="authMenuHide();openPayModal(this.dataset.sec||'account')" style="display:none;padding:11px 14px;cursor:pointer;
+       color:#4ade80;font-weight:800;border-bottom:1px solid var(--bdr)"
+       onmouseover="this.style.background='rgba(34,197,94,.10)'" onmouseout="this.style.background=''">💳 دفع / تجديد الاشتراك</div>
   <div id="authMenuAdmin" onclick="authOpenAdmin()" style="display:none;padding:11px 14px;cursor:pointer;
        color:#fbbf24;font-weight:700;border-bottom:1px solid var(--bdr)"
        onmouseover="this.style.background='rgba(251,191,36,.08)'" onmouseout="this.style.background=''">⚙️ لوحة الأدمن</div>
@@ -2159,7 +2163,18 @@ function authBtnClick(e) {
   const left = Math.max(8, Math.min(r.left, window.innerWidth - 210));
   menu.style.left = left + 'px';
   document.getElementById('authMenuEmail').textContent = sbUser.email || '';
-  /* 💳 حالة الاشتراك في قائمة الحساب */
+  /* اعرض الحالة المخزّنة فوراً، ثم أعد الجلب من القاعدة لعرض الحالة الحقيقية */
+  _authRenderSubAndPay();
+  refreshUserRestrictions().then(() => {
+    const m = document.getElementById('authMenu');
+    if (m && m.style.display === 'block') _authRenderSubAndPay();
+  });
+  e.stopPropagation();
+}
+
+/* بناء سطر حالة الاشتراك + زر الدفع في قائمة الحساب (من userRestrictions الحالية) */
+function _authRenderSubAndPay() {
+  if (!sbUser) return;
   const subEl = document.getElementById('authMenuSub');
   if (subEl) {
     if (isAdmin()) subEl.style.display = 'none';
@@ -2167,6 +2182,7 @@ function authBtnClick(e) {
       subEl.style.display = 'block';
       const lines = [];
       SUB_SECTION_DEFS.forEach(d => {
+        if (d.k === 'popups') return;   // النوافذ المنبثقة ليست اشتراكاً يُعرض للمستخدم
         const x = _subInfo(userRestrictions, d.k);
         if (x.plan !== 'paid') return;
         const amt = x.price ? ` <b style="color:#fbbf24">${x.price} ر.س</b>` : '';
@@ -2177,7 +2193,22 @@ function authBtnClick(e) {
       subEl.innerHTML = lines.length ? lines.join('<br>') : '🆓 اشتراكك الحالي: مجاني';
     }
   }
-  e.stopPropagation();
+  /* 💳 زر الدفع/التجديد في القائمة — يظهر لغير الأدمن إن كان لديه قسم مدفوع (وزر الدفع مسموح) */
+  const payEl = document.getElementById('authMenuPay');
+  if (payEl) {
+    let paySec = null;
+    if (!isAdmin()) {
+      const acc = _subInfo(userRestrictions, 'account');
+      if (acc.plan === 'paid' && acc.showPay) paySec = 'account';
+      else {
+        for (const d of (typeof ADMIN_TAB_DEFS !== 'undefined' ? ADMIN_TAB_DEFS : [])) {
+          if (_svcPrice(d.k).price > 0) { paySec = d.k; break; }
+        }
+      }
+    }
+    if (paySec) { payEl.dataset.sec = paySec; payEl.style.display = 'block'; }
+    else payEl.style.display = 'none';
+  }
 }
 function authMenuHide() { document.getElementById('authMenu').style.display = 'none'; }
 document.addEventListener('click', (e) => {
@@ -2413,8 +2444,44 @@ const ADMIN_EMAILS = ['abd1234ify@gmail.com', 'market13s@hotmail.com'];
 const SUPPORT_EMAIL = 'market13S@hotmail.com';
 let appSettings = {};
 
-function isAdmin() {
+/* ══════════ 🛡️ نظام الأدوار والصلاحيات الإشرافية ══════════
+   • الأدمن الرئيسي: إيميله ضمن ADMIN_EMAILS — صلاحية كاملة، وهو وحده يعيّن المشرفين.
+   • المشرف: مستخدم عادي مُنح role='supervisor' في جدول profiles، مع صلاحيات
+     محدّدة في perms (support = الرد على الدعم · users = إدارة اشتراكات/قيود المستخدمين).
+   • الحماية الحقيقية على مستوى قاعدة البيانات عبر سياسات RLS (انظر ملف supabase-roles.sql).
+   تُحمَّل هذه القيم في syncProfileAndRestrictions من ملف المستخدم نفسه. */
+let sbRole  = 'user';   // دور المستخدم الحالي كما في profiles.role
+let sbPerms = null;     // صلاحيات المشرف {support:bool, users:bool}
+
+/* الأدمن الرئيسي (المالك) — القائمة الثابتة */
+function isSuperAdmin() {
   return !!(sbUser && ADMIN_EMAILS.includes((sbUser.email || '').toLowerCase()));
+}
+/* مشرف مُعيَّن (وليس أدمن رئيسي) */
+function isSupervisor() {
+  return !!(sbUser && sbRole === 'supervisor' && !isSuperAdmin());
+}
+/* أي عضو في فريق الإشراف (أدمن رئيسي أو مشرف) */
+function isStaff() {
+  return isSuperAdmin() || isSupervisor();
+}
+/* صلاحيات المشرف الفعلية (الافتراضي: مفعّلة إن لم تُحدَّد) */
+function _staffPerms() {
+  const p = sbPerms || {};
+  return { support: p.support !== false, users: p.users !== false };
+}
+/* هل يملك المستخدم الحالي صلاحية معيّنة؟ الأدمن الرئيسي يملك كل شيء */
+function can(perm) {
+  if (isSuperAdmin()) return true;
+  if (!isSupervisor()) return false;
+  return !!_staffPerms()[perm];
+}
+
+/* isAdmin() يعني الآن «عضو فريق الإشراف» — يُظهر قسم الأدمن ويرفع القيود عن العضو.
+   الإجراءات الخطرة (حذف/إنشاء مستخدم، الإعدادات العامة، تعيين المشرفين)
+   محميّة على حدة بـ isSuperAdmin() أو can('users'). */
+function isAdmin() {
+  return isStaff();
 }
 
 async function loadAppSettings() {
@@ -2436,6 +2503,8 @@ let _cloudReady = false;   // لا نرفع شيئاً قبل أول جلب نا
 function clearLocalUserData() {
   portfolio = [];
   watchlist = [];
+  sbRole = 'user';        // 🛡️ صفّر الدور والصلاحيات عند الخروج/تبديل الحساب
+  sbPerms = null;
   _cloudReady = false;
   _cloudLastPushed = '';
   clearTimeout(_cloudPushTimer);
@@ -2757,7 +2826,10 @@ function _targetsLocked(secKey) {
   const lt = _secFlags(userRestrictions, secKey).lockT;
   if (lt === 'open') return false;   // فتحها الأدمن
   if (lt === 'lock') return true;    // أقفلها الأدمن
-  return !_isPaidFor(secKey);        // تلقائي: تُقفل لغير المشترك
+  /* تلقائي (حسب الاشتراك): مفتوحة للمجاني وللمشترك النشط،
+     وتُقفل فقط لمن كان لديه اشتراك مدفوع وانتهت مدته. */
+  const si = _subInfo(userRestrictions, secKey);
+  return si.plan === 'paid' && si.expired;
 }
 /* غلاف تظليل موحّد فوق كتلة الأهداف مع دعوة للاشتراك */
 function _lockOverlayWrap(innerHTML) {
@@ -2778,7 +2850,27 @@ function _wrapIfLocked(secKey, html) {
 let _subWatchTimer = null;
 function _startSubWatch() {
   if (_subWatchTimer) return;
-  _subWatchTimer = setInterval(() => { try { applyAppSettings(); } catch (e) {} }, 60 * 1000);
+  /* كل 30 ثانية: أعد جلب قيود المستخدم من القاعدة (لتصل تغييرات الأدمن فوراً) ثم طبّقها */
+  _subWatchTimer = setInterval(() => { refreshUserRestrictions(); }, 30 * 1000);
+  /* وعند عودة المستخدم للتبويب: أعد الجلب مباشرة */
+  if (!_subVisBound) {
+    _subVisBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshUserRestrictions();
+    });
+  }
+}
+let _subVisBound = false;
+/* 🔄 إعادة جلب قيود المستخدم + إعدادات التطبيق من القاعدة وتطبيقها (يعكس تغييرات الأدمن) */
+async function refreshUserRestrictions() {
+  if (!sb || !sbUser) { try { applyAppSettings(); } catch (e) {} return; }
+  try {
+    const { data } = await sb.from('user_restrictions').select('*')
+      .eq('email', sbUser.email).maybeSingle();
+    userRestrictions = data || {};
+  } catch (e) {}
+  try { await loadAppSettings(); } catch (e) {}   // يجلب الإعدادات (أقسام/أسعار/بنوك) ويطبّقها
+  try { applyAppSettings(); } catch (e) {}
 }
 
 async function syncProfileAndRestrictions() {
@@ -2796,6 +2888,13 @@ async function syncProfileAndRestrictions() {
       display_name: authDisplayName(), last_seen: new Date().toISOString(),
     });
   } catch (e) {}
+  /* 🛡️ اجلب دور المستخدم وصلاحياته الإشرافية من ملفه */
+  try {
+    const { data: prof } = await sb.from('profiles').select('role, perms')
+      .eq('id', sbUser.id).maybeSingle();
+    sbRole  = (prof && prof.role)  || 'user';
+    sbPerms = (prof && prof.perms) || null;
+  } catch (e) { sbRole = 'user'; sbPerms = null; }
   /* اجلب قيوده الفردية إن وُجدت */
   try {
     const { data } = await sb.from('user_restrictions').select('*')
@@ -2803,6 +2902,8 @@ async function syncProfileAndRestrictions() {
     userRestrictions = data || {};
   } catch (e) { userRestrictions = {}; }
   applyAppSettings();
+  /* حدّث الواجهة بعد معرفة الدور (قد يكون authUpdateUI سبق التحميل) */
+  if (typeof authUpdateUI === 'function') authUpdateUI();
 }
 
 function applyAppSettings() {
@@ -2812,10 +2913,8 @@ function applyAppSettings() {
     ...(s.hiddenTabs || []),
     ...((userRestrictions && userRestrictions.hidden_tabs) || []),
   ]);
-  /* 💳 القسم الذي انتهى اشتراكه يُغلق تلقائياً */
-  if (sbUser && !isAdmin()) ['watchlist', 'monitor', 'returns', 'all', 'analysis'].forEach(k => {
-    if (_subInfo(userRestrictions, k).expired) hidden.add(k);
-  });
+  /* 💳 بعد انتهاء الاشتراك: لا تُحجب الأقسام — تبقى ظاهرة، وتُظلَّل «الأهداف ووقف الخسارة»
+     فقط تلقائياً حسب الاشتراك (عبر _targetsLocked). لذا لا نضيف الأقسام المنتهية للمخفيّة. */
   document.querySelectorAll('.nav-btn[data-tab]').forEach(btn => {
     if (btn.dataset.tab === 'admin') { btn.style.display = isAdmin() ? '' : 'none'; return; }
     btn.style.display = hidden.has(btn.dataset.tab) ? 'none' : '';
@@ -2826,12 +2925,13 @@ function applyAppSettings() {
     const homeBtn = document.querySelector('.nav-btn[data-tab="home"]');
     if (homeBtn) try { switchTab('home', homeBtn); } catch (e) {}
   }
-  /* العرض الضبابي — لكل قسم على حدة (قيد فردي من الأدمن) */
+  /* العرض الضبابي للقسم كاملاً — مُعطّل عمداً:
+     المطلوب أن تُظلَّل «الأهداف ووقف الخسارة» فقط (عبر _targetsLocked) دون حجب المحتوى كله. */
   ADMIN_TAB_DEFS.forEach(t => {
     const id = 'panel-' + t.k;
     const p = document.getElementById(id);
     if (!p) return;
-    const doBlur = !!sbUser && !isAdmin() && _secFlags(userRestrictions, t.k).blur;
+    const doBlur = false;   // لا نحجب المحتوى الكامل — القفل يقتصر على الأهداف
     p.style.filter = doBlur ? 'blur(6px)' : '';
     p.style.userSelect = doBlur ? 'none' : '';
     p.style.pointerEvents = doBlur ? 'none' : '';
@@ -2930,7 +3030,7 @@ function _updateGate() {
         <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:8px">انتهى اشتراكك</div>
         <div style="font-size:13px;color:rgba(255,255,255,.6);margin-bottom:20px;line-height:1.9">
           انقضت مدة اشتراكك (${_accSi.days || 0} يوم)${price ? ` — قيمة التجديد ${price} ر.س` : ''}<br>جدّد اشتراكك للعودة إلى المنصة</div>
-        ${showPay ? `<button onclick="showToast('💳 الدفع بالبطاقة (فيزا وغيرها) سيتوفر قريباً — تواصل مع الدعم للتجديد');showSupportForm()"
+        ${showPay ? `<button onclick="openPayModal('account')"
           style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;font-weight:800;font-size:14.5px;color:#fff;
           background:linear-gradient(135deg,#166534 0%,#22c55e 100%);margin-bottom:10px">💳 دفع / تجديد الاشتراك</button>` : ''}
         <button onclick="showSupportForm()" style="width:100%;padding:12px;border-radius:11px;cursor:pointer;
@@ -2968,6 +3068,268 @@ function _updateGate() {
   } else if (gate) gate.style.display = 'none';
 }
 
+/* ═══════════════════════════════════════════════════════════
+   💳 نظام الدفع — تحويل بنكي (يعمل الآن) + الفيزا (مكانها جاهز)
+   الحسابات البنكية تُخزَّن في appSettings.banks ويديرها الأدمن الرئيسي.
+═══════════════════════════════════════════════════════════ */
+
+/* حساب بنكي تجريبي افتراضي (مصرف الراجحي) — يظهر حتى يضيف الأدمن حساباته */
+const DEFAULT_BANKS = [{
+  id: 'demo-rajhi',
+  name: 'مصرف الراجحي (تجريبي)',
+  holder: 'شركة تداول بلس',
+  iban: 'SA0000000000000000000000',
+  account: '000000000000000',
+  note: 'حساب تجريبي — استبدله ببياناتك من لوحة الأدمن',
+}];
+
+/* قائمة البنوك المعتمدة (من الإعدادات أو الافتراضي) */
+function getBanks() {
+  const b = appSettings && Array.isArray(appSettings.banks) ? appSettings.banks : null;
+  return (b && b.length) ? b : DEFAULT_BANKS;
+}
+
+/* 💵 سعر خدمة قسمٍ في صفحة الدفع:
+   أولاً سعر المستخدم الخاص (إن كان مشتركاً مدفوعاً)، وإلا السعر العام من appSettings.servicePrices */
+function _svcPrice(k) {
+  const u = _subInfo(userRestrictions, k);
+  if (u.plan === 'paid' && (u.price || 0) > 0)
+    return { price: Number(u.price) || 0, days: Number(u.days) || 0, expired: !!u.expired };
+  const g = (appSettings && appSettings.servicePrices && appSettings.servicePrices[k]) || null;
+  if (g && (Number(g.price) || 0) > 0)
+    return { price: Number(g.price) || 0, days: Number(g.days) || 0, expired: false };
+  return { price: 0, days: 0, expired: false };
+}
+
+/* اسم القسم المعروض في صفحة الدفع */
+function _payLabel(secKey) {
+  if (!secKey || secKey === 'account') return 'اشتراك المنصة';
+  const d = (typeof SUB_SECTION_DEFS !== 'undefined') && SUB_SECTION_DEFS.find(x => x.k === secKey);
+  return d ? ('اشتراك: ' + d.t.replace(/^\S+\s/, '')) : 'الاشتراك';
+}
+
+/* نسخ نص (آيبان/رقم حساب) مع تنبيه */
+async function payCopy(text, what) {
+  try {
+    await navigator.clipboard.writeText(String(text || '').replace(/\s/g, ''));
+    showToast('📋 نُسخ ' + (what || '') );
+  } catch (e) { showToast('تعذّر النسخ — انسخه يدوياً'); }
+}
+
+/* 💳 فتح صفحة الدفع للمستخدم */
+function openPayModal(secKey) {
+  secKey = secKey || 'account';
+  /* 🧾 اعرض كل أقسام المنصة كخدمات؛ سعر كل قسم = سعر المستخدم الخاص إن وُجد،
+     وإلا السعر العام الذي يضبطه الأدمن في «أسعار الخدمات». */
+  const defs = (typeof ADMIN_TAB_DEFS !== 'undefined' && ADMIN_TAB_DEFS.length)
+    ? ADMIN_TAB_DEFS
+    : [{ k: 'watchlist', t: '📁 المحفظة' }, { k: 'monitor', t: '👁️ المراقبة' },
+       { k: 'returns', t: '📈 العوائد' }, { k: 'all', t: '🔮 رادار الانفجارات' },
+       { k: 'analysis', t: '⚡ تحليل السوق' }];
+  const payItems = defs.map(d => {
+    const p = _svcPrice(d.k);
+    return { k: d.k, label: _payLabel(d.k), price: p.price, days: p.days, expired: p.expired };
+  });
+  const priced = payItems.filter(it => it.price > 0);
+  /* الاختيار المبدئي: القسم القادم من الزر إن كان مسعّراً، وإلا كل الخدمات المسعّرة */
+  const preHasSec = priced.some(it => it.k === secKey);
+  const banks = getBanks();
+  const old = document.getElementById('payModal');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'payModal';
+  el.style.cssText = 'position:fixed;inset:0;z-index:998;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto';
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  const bankCard = (bk) => `
+    <label style="display:block;border:1px solid var(--bdr);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--surf-alt);cursor:pointer">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <input type="radio" name="payBank" class="payBank" value="${(bk.name || 'بنك').replace(/"/g,'&quot;')}"
+          data-holder="${(bk.holder || '').replace(/"/g,'&quot;')}" data-iban="${(bk.iban || '').replace(/"/g,'&quot;')}"
+          data-account="${(bk.account || '').replace(/"/g,'&quot;')}"
+          onchange="payMarkBank(this)" style="width:17px;height:17px;cursor:pointer;flex-shrink:0">
+        <span style="font-size:13.5px;font-weight:800;color:var(--txt)">🏦 ${bk.name || 'بنك'}</span>
+      </div>
+      ${bk.holder ? `<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--txt-m);padding:3px 0"><span>اسم المستفيد</span><b style="color:var(--txt)">${bk.holder}</b></div>` : ''}
+      ${bk.iban ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--txt-m);padding:3px 0">
+        <span>الآيبان</span>
+        <span style="display:flex;align-items:center;gap:6px"><b style="color:var(--txt);direction:ltr;font-size:11.5px">${bk.iban}</b>
+        <button onclick="payCopy('${(bk.iban||'').replace(/'/g,'')}','الآيبان')" style="padding:3px 8px;border-radius:7px;border:1px solid var(--bdr);background:var(--surf);color:#93c5fd;font-size:10.5px;font-weight:700;cursor:pointer">📋 نسخ</button></span>
+      </div>` : ''}
+      ${bk.account ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--txt-m);padding:3px 0">
+        <span>رقم الحساب</span>
+        <span style="display:flex;align-items:center;gap:6px"><b style="color:var(--txt);direction:ltr;font-size:11.5px">${bk.account}</b>
+        <button onclick="payCopy('${(bk.account||'').replace(/'/g,'')}','رقم الحساب')" style="padding:3px 8px;border-radius:7px;border:1px solid var(--bdr);background:var(--surf);color:#93c5fd;font-size:10.5px;font-weight:700;cursor:pointer">📋 نسخ</button></span>
+      </div>` : ''}
+      ${bk.note ? `<div style="font-size:10.5px;color:var(--txt-m);margin-top:6px;line-height:1.6">${bk.note}</div>` : ''}
+    </label>`;
+  el.innerHTML = `
+    <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:18px;
+                width:100%;max-width:420px;padding:22px;max-height:92vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:16px;font-weight:800">💳 صفحة الدفع</div>
+        <button onclick="document.getElementById('payModal').remove()"
+          style="width:28px;height:28px;border-radius:50%;border:none;background:var(--surf-alt);color:var(--txt);cursor:pointer">✕</button>
+      </div>
+
+      <!-- 🧾 اختيار الخدمات -->
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;margin:6px 0 8px">🧾 اختر الخدمات المطلوبة</div>
+      ${payItems.length ? `
+      <div style="border:1px solid rgba(34,197,94,.3);border-radius:14px;padding:6px 14px;margin-bottom:14px;
+                  background:linear-gradient(135deg,rgba(22,101,52,.18),rgba(34,197,94,.06))">
+        <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;
+                      border-bottom:1px solid rgba(255,255,255,.08);cursor:pointer;font-weight:800">
+          <span style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="paySelAll" onchange="payToggleAll()" style="width:18px;height:18px;cursor:pointer">
+            <span style="color:var(--txt)">✅ كل الخدمات</span>
+          </span>
+          <span style="font-size:11px;color:var(--txt-m)">حدّد ما تريد</span>
+        </label>
+        ${payItems.map(it => { const avail = it.price > 0; return `
+        <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;
+                      border-bottom:1px solid rgba(255,255,255,.06);cursor:${avail ? 'pointer' : 'default'};opacity:${avail ? '1' : '.55'}">
+          <span style="display:flex;align-items:center;gap:8px;min-width:0">
+            <input type="checkbox" class="paySvc" data-k="${it.k}" data-price="${it.price}" data-days="${it.days}"
+              data-label="${it.label.replace(/"/g,'&quot;')}" onchange="payRecalc()" ${avail ? '' : 'disabled'}
+              ${avail && (preHasSec ? it.k === secKey : true) ? 'checked' : ''} style="width:18px;height:18px;cursor:${avail ? 'pointer' : 'not-allowed'};flex-shrink:0">
+            <span style="min-width:0">
+              <span style="font-size:13px;font-weight:700;color:var(--txt)">${it.label}</span>
+              ${avail && it.days ? `<span style="font-size:10.5px;color:var(--txt-m);display:block">المدة: ${it.days} يوم${it.expired ? ' · ⏳ منتهٍ' : ''}</span>` : ''}
+            </span>
+          </span>
+          <b style="font-size:14px;color:${avail ? '#4ade80' : 'var(--txt-m)'};white-space:nowrap">${avail ? it.price + ' ر.س' : 'غير مُسعّر'}</b>
+        </label>`; }).join('')}
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0 8px">
+          <span style="font-size:13px;font-weight:800;color:var(--txt)">الإجمالي</span>
+          <span id="payTotal" style="font-size:22px;font-weight:900;color:#4ade80">0 ر.س</span>
+        </div>
+      </div>` : `
+      <div style="background:var(--surf-alt);border:1px dashed var(--bdr);border-radius:14px;padding:16px;margin-bottom:14px;
+                  text-align:center;font-size:12.5px;color:var(--txt-m);line-height:1.8">
+        لا توجد خدمات مسعّرة على حسابك حالياً.<br>تواصل مع الدعم لتحديد الباقة والسعر.
+      </div>`}
+
+      <!-- طريقة الدفع: تحويل بنكي -->
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;margin-bottom:10px">🏦 التحويل البنكي</div>
+      <div style="font-size:11.5px;color:var(--txt-m);line-height:1.7;margin-bottom:10px">
+        حوّل المبلغ إلى أحد الحسابات التالية، ثم <b style="color:#fbbf24">اختر البنك الذي حوّلت إليه</b> واضغط «تم التحويل» لإبلاغ الإدارة ويُفعَّل اشتراكك بعد المراجعة.
+      </div>
+      ${banks.map(bankCard).join('')}
+
+      <div style="font-size:11.5px;color:var(--txt-m);margin:12px 0 5px">👤 اسمك الحقيقي (الذي حوّلت منه المبلغ)</div>
+      <input id="paySenderName" type="text" placeholder="الاسم كما في حسابك البنكي"
+        style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;
+               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:13px;outline:none;font-family:inherit">
+
+      <button onclick="payNotifyTransfer('${secKey}')" style="width:100%;margin-top:10px;padding:14px;border-radius:12px;
+        border:none;cursor:pointer;font-weight:800;font-size:14px;color:#fff;
+        background:linear-gradient(135deg,#166534 0%,#22c55e 100%)">✅ تم التحويل — إبلاغ الإدارة</button>
+
+      <!-- طريقة الدفع: بطاقة (فيزا) — مكانها جاهز -->
+      <div style="font-size:13px;font-weight:800;color:#fbbf24;margin:20px 0 10px">💳 البطاقة (فيزا / مدى / ماستركارد)</div>
+      <div style="border:1px dashed var(--bdr);border-radius:12px;padding:16px;text-align:center;opacity:.7">
+        <div style="font-size:26px;margin-bottom:6px">💳</div>
+        <div style="font-size:12.5px;color:var(--txt-m);line-height:1.7">الدفع بالبطاقة سيُفعَّل قريباً بإذن الله<br>(المكان جاهز لربط بوابة الدفع لاحقاً)</div>
+        <button disabled style="width:100%;margin-top:12px;padding:12px;border-radius:11px;border:none;
+          font-weight:800;font-size:13px;color:rgba(255,255,255,.5);cursor:not-allowed;
+          background:var(--surf-alt)">🔒 قريباً</button>
+      </div>
+
+      <button onclick="document.getElementById('payModal').remove();showSupportForm()"
+        style="width:100%;margin-top:16px;padding:11px;border-radius:11px;cursor:pointer;
+        border:1.5px solid rgba(96,165,250,.4);background:rgba(96,165,250,.1);
+        color:#93c5fd;font-weight:700;font-size:12.5px">📨 تواصل مع الدعم</button>
+    </div>`;
+  document.body.appendChild(el);
+  payRecalc();
+}
+
+/* الخدمات المحدّدة حالياً في صفحة الدفع */
+function _paySelected() {
+  return [...document.querySelectorAll('#payModal .paySvc:checked')].map(c => ({
+    k: c.dataset.k, label: c.dataset.label, price: Number(c.dataset.price) || 0, days: Number(c.dataset.days) || 0,
+  }));
+}
+
+/* إعادة حساب الإجمالي وحالة «كل الخدمات» */
+function payRecalc() {
+  const all = [...document.querySelectorAll('#payModal .paySvc')];
+  const sel = all.filter(c => c.checked);
+  const total = sel.reduce((s, c) => s + (Number(c.dataset.price) || 0), 0);
+  const tEl = document.getElementById('payTotal');
+  if (tEl) tEl.textContent = total + ' ر.س';
+  const allBox = document.getElementById('paySelAll');
+  if (allBox) allBox.checked = all.length > 0 && sel.length === all.length;
+}
+
+/* تفعيل/إلغاء كل الخدمات */
+function payToggleAll() {
+  const on = document.getElementById('paySelAll').checked;
+  document.querySelectorAll('#payModal .paySvc').forEach(c => { c.checked = on; });
+  payRecalc();
+}
+
+/* تمييز بطاقة البنك المختار بصرياً */
+function payMarkBank(radio) {
+  document.querySelectorAll('#payModal label .payBank').forEach(r => {
+    const lbl = r.closest('label');
+    if (lbl) {
+      const on = r.checked;
+      lbl.style.borderColor = on ? '#22c55e' : 'var(--bdr)';
+      lbl.style.background  = on ? 'rgba(34,197,94,.10)' : 'var(--surf-alt)';
+    }
+  });
+}
+
+/* ✅ تم التحويل — يفتح نموذج «اتصل بالدعم» مُعبّأً بالخدمات + البنك المُحوَّل إليه */
+async function payNotifyTransfer(secKey) {
+  const sel = _paySelected();
+  if (!sel.length) { showToast('⚠️ اختر خدمة واحدة على الأقل'); return; }
+  const bankEl = document.querySelector('#payModal .payBank:checked');
+  if (!bankEl) { showToast('⚠️ حدّد البنك الذي حوّلت إليه أولاً'); return; }
+  const nameEl = document.getElementById('paySenderName');
+  const senderName = (nameEl && nameEl.value || '').trim();
+  if (!senderName) {
+    showToast('⚠️ اكتب اسمك الحقيقي الذي حوّلت منه المبلغ');
+    if (nameEl) nameEl.focus();
+    return;
+  }
+  const bankName    = bankEl.value || '';
+  const bankHolder  = bankEl.dataset.holder || '';
+  const bankIban    = bankEl.dataset.iban || '';
+  const bankAccount = bankEl.dataset.account || '';
+  const total = sel.reduce((s, it) => s + it.price, 0);
+  const text = `طلب تفعيل اشتراك بعد تحويل بنكي:\n`
+    + `صاحب الطلب (المُحوِّل): ${senderName}\n`
+    + sel.map(it => `- ${it.label}: ${it.price} ر.س${it.days ? ' (' + it.days + ' يوم)' : ''}`).join('\n')
+    + `\nالإجمالي: ${total} ر.س`
+    + `\n— بيانات التحويل —`
+    + `\nالبنك: ${bankName}`
+    + (bankHolder  ? `\nاسم المستفيد: ${bankHolder}` : '')
+    + (bankIban    ? `\nالآيبان: ${bankIban}` : '')
+    + (bankAccount ? `\nرقم الحساب: ${bankAccount}` : '');
+  /* 🧾 سجّل العملية في سجل المدفوعات (منظّم — يسهل رجوع الإدارة إليه) */
+  try {
+    if (sb && sbUser) {
+      await sb.from('payments').insert({
+        email: sbUser.email,
+        sender_name: senderName,
+        services: sel,
+        total,
+        bank_name: bankName,
+        bank_holder: bankHolder,
+        bank_iban: bankIban,
+        bank_account: bankAccount,
+        message: text,
+        status: 'pending',
+      });
+    }
+  } catch (e) { console.warn('[payments] تعذّر تسجيل العملية:', e.message); }
+  const m = document.getElementById('payModal');
+  if (m) m.remove();
+  showSupportForm({ type: '💳 دفع/تجديد اشتراك', text });
+  showToast('📨 سُجّلت عمليتك وأُضيفت لطلب الدعم — اضغط «إرسال» لإبلاغ الإدارة');
+}
+
 /* لوحة الأدمن */
 function authOpenAdmin() {
   authMenuHide();
@@ -2992,34 +3354,64 @@ function renderAdminSection() {
   const row  = 'display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bdr);font-size:13px';
   const card = 'background:var(--surf);border:1px solid var(--bdr-modal);border-radius:16px;padding:20px';
   const head = 'font-size:13.5px;font-weight:800;color:#fbbf24;margin-bottom:10px';
+  /* 🛡️ صلاحيات العرض: الأدمن الرئيسي يرى كل شيء، المشرف يرى ما مُنح له فقط */
+  const owner    = isSuperAdmin();
+  const seeSup   = owner || can('support');   // طلبات الدعم
+  const seeUsers = owner || can('users');     // إدارة المستخدمين
+  /* شريط يوضّح للمشرف صلاحياته */
+  const supBanner = owner ? '' : `
+    <div style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.35);border-radius:12px;
+                padding:10px 14px;margin-bottom:14px;font-size:12px;color:#c4b5fd;font-weight:700">
+      🛡️ أنت مشرف — صلاحياتك: ${[can('support') ? 'الرد على الدعم' : null, can('users') ? 'إدارة اشتراكات وقيود المستخدمين' : null].filter(Boolean).join(' · ') || 'لا صلاحيات ممنوحة بعد'}
+    </div>`;
   wrap.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:16px 0">
-      <div style="font-size:19px;font-weight:800">⚙️ لوحة الأدمن</div>
+      <div style="font-size:19px;font-weight:800">⚙️ لوحة ${owner ? 'الأدمن' : 'الإشراف'}</div>
       <button onclick="renderAdminSection()" style="padding:8px 14px;border-radius:9px;border:1px solid var(--bdr);
         background:var(--surf-alt);color:var(--txt);font-size:12px;font-weight:700;cursor:pointer">🔄 تحديث البيانات</button>
     </div>
+    ${supBanner}
 
     <style>
-      #adminSectionWrap .admGrid{display:grid;grid-template-columns:minmax(320px,5fr) minmax(320px,7fr);gap:14px;align-items:start}
-      @media (max-width:900px){#adminSectionWrap .admGrid{grid-template-columns:1fr}}
+      #adminSectionWrap .admGrid{display:grid;grid-template-columns:minmax(320px,7fr) minmax(320px,5fr);gap:16px;align-items:start}
+      #adminSectionWrap .admGrid > *{min-width:0}
+      #adminSectionWrap .admGrid > .admCol-primary{order:1}
+      #adminSectionWrap .admGrid > .admCol-secondary{order:2}
+      @media (max-width:900px){#adminSectionWrap .admGrid{grid-template-columns:1fr;gap:14px}}
     </style>
     <div class="admGrid">
 
-      <!-- العمود الأيمن: الزيارات + طلبات الدعم + الإعدادات -->
-      <div style="display:flex;flex-direction:column;gap:14px">
-      <div style="${card}">
-        <div style="${head}">📊 الزيارات</div>
+      <!-- العمود الثانوي: الزيارات + طلبات الدعم + الإعدادات -->
+      <div class="admCol-secondary" style="display:flex;flex-direction:column;gap:16px">
+      ${seeSup ? `<div style="${card}">
+        ${owner ? `<div style="${head}">📊 الزيارات</div>
         <div id="admStatsBox" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
-             font-size:11px;color:var(--txt-m);text-align:center">⏳ جارٍ الحساب...</div>
+             font-size:11px;color:var(--txt-m);text-align:center">⏳ جارٍ الحساب...</div>` : ''}
 
-        <div style="${head};margin-top:20px">📨 طلبات الدعم <span id="admSupNew"></span></div>
+        <div style="${head}${owner ? ';margin-top:20px' : ''}">📨 طلبات الدعم <span id="admSupNew"></span></div>
         <div id="admSupportBox" style="max-height:300px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--bdr);
              border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m);
              word-break:break-word;overflow-wrap:anywhere">⏳ جارٍ التحميل...</div>
-      </div>
+      </div>` : ''}
 
-      <!-- الإعدادات العامة -->
-      <div style="${card}">
+      <!-- 🛡️ سجل نشاط المشرفين (للأدمن الرئيسي فقط) -->
+      ${owner ? `<div style="${card}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+          <div style="${head};margin-bottom:0">🛡️ سجل نشاط المشرفين</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <select id="admActFilter" onchange="adminRenderActivity()" style="padding:6px 9px;border-radius:8px;border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11px;font-family:inherit">
+              <option value="supervisor">🛡️ المشرفون فقط</option>
+              <option value="all">الكل (يشمل الأدمن)</option>
+            </select>
+            <button onclick="adminLoadActivity()" title="تحديث" style="padding:6px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">🔄</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--txt-m);line-height:1.7;margin-bottom:10px">يعرض لكل مشرف <b>ماذا عدّل</b> على المستخدمين و<b>ماذا ردّ</b> على الدعم. تُسجَّل الإجراءات تلقائياً.</div>
+        <div id="admActivityBox" style="font-size:12px;color:var(--txt-m)">⏳ جارٍ التحميل...</div>
+      </div>` : ''}
+
+      <!-- الإعدادات العامة (للأدمن الرئيسي فقط) -->
+      ${owner ? `<div style="${card}">
         <div style="${head}">🧩 الأقسام الظاهرة للمستخدمين</div>
         ${tabs.map(t => `
           <label style="${row};cursor:pointer">
@@ -3049,18 +3441,74 @@ function renderAdminSection() {
         <button onclick="adminSave()" style="width:100%;margin-top:20px;padding:13px;border-radius:11px;
           border:none;cursor:pointer;font-weight:800;font-size:14px;color:#1a1a1a;
           background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ ونشر على كل المستخدمين</button>
-      </div>
+      </div>` : ''}
+
+      <!-- 🏦 الحسابات البنكية للدفع (للأدمن الرئيسي فقط) -->
+      ${owner ? `<div style="${card}">
+        <div style="${head}">🏦 الحسابات البنكية للدفع</div>
+        <div style="font-size:11px;color:var(--txt-m);line-height:1.7;margin-bottom:10px">
+          تظهر للمستخدم في صفحة الدفع عند تجديد اشتراكه عبر التحويل البنكي.
+        </div>
+        <div id="admBanksList"></div>
+        <div style="border:1px dashed var(--bdr);border-radius:12px;padding:12px;margin-top:8px">
+          <div style="font-size:11.5px;font-weight:700;color:var(--txt);margin-bottom:8px">➕ إضافة حساب بنكي</div>
+          <input id="admBankName"    type="text" placeholder="اسم البنك (مثال: مصرف الراجحي)" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;font-family:inherit">
+          <input id="admBankHolder"  type="text" placeholder="اسm المستفيد (صاحب الحساب)" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;font-family:inherit">
+          <input id="admBankIban"    type="text" placeholder="رقم الآيبان IBAN" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;direction:ltr;text-align:left;font-family:inherit">
+          <input id="admBankAccount" type="text" placeholder="رقم الحساب (اختياري)" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;direction:ltr;text-align:left;font-family:inherit">
+          <input id="admBankNote"    type="text" placeholder="ملاحظة (اختياري)" style="width:100%;box-sizing:border-box;margin-bottom:9px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;font-family:inherit">
+          <button onclick="adminAddBank()" style="width:100%;padding:11px;border-radius:10px;border:none;cursor:pointer;
+            font-weight:800;font-size:12.5px;color:#fff;background:linear-gradient(135deg,#166534,#22c55e)">➕ إضافة الحساب</button>
+        </div>
+      </div>` : ''}
+
+      <!-- 💵 أسعار الخدمات (تظهر لكل المستخدمين في صفحة الدفع) -->
+      ${owner ? `<div style="${card}">
+        <div style="${head}">💵 أسعار الخدمات</div>
+        <div style="font-size:11px;color:var(--txt-m);line-height:1.7;margin-bottom:12px">
+          هذه الأسعار العامة تظهر لكل المستخدمين في صفحة الدفع لكل قسم. (سعر المستخدم الخاص إن وُجد يبقى أولوية له.)
+        </div>
+        ${tabs.map(t => { const g = ((s.servicePrices || {})[t.k]) || {}; return `
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bdr)">
+            <span style="flex:1;font-size:12.5px;color:var(--txt)">${t.t}</span>
+            <input id="admSvc-${t.k}-price" type="number" min="0" step="any" placeholder="السعر ر.س" value="${g.price != null ? g.price : ''}"
+              style="width:92px;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;outline:none;font-family:inherit">
+            <input id="admSvc-${t.k}-days" type="number" min="0" placeholder="أيام" value="${g.days != null ? g.days : ''}"
+              style="width:66px;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;outline:none;font-family:inherit">
+          </div>`; }).join('')}
+        <button onclick="adminSaveServicePrices()" style="width:100%;margin-top:14px;padding:12px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:13px;color:#1a1a1a;
+          background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ أسعار الخدمات</button>
+      </div>` : ''}
+
+      <!-- 📈 البيانات التاريخية للأسهم (للأدمن الرئيسي فقط) -->
+      ${owner ? `<div style="${card}">
+        <div style="${head}">📈 البيانات التاريخية للأسهم</div>
+        <div style="font-size:11px;color:var(--txt-m);line-height:1.7;margin-bottom:10px">
+          تُخزَّن شموع يومية (5 سنوات) لكل رمز في القاعدة، فتُقرأ بسرعة دون إعادة الجلب من المصدر في كل مرة.
+          افتح قسم «🔮 رادار الانفجارات» أولاً حتى تُحمَّل قائمة الأسهم، ثم اضغط الجلب (بذرة أولى مرة واحدة).
+        </div>
+        <div style="font-size:10.5px;color:#86efac;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.22);border-radius:9px;padding:7px 10px;line-height:1.7;margin-bottom:10px">
+          ⏰ بعد البذرة الأولى، يُحدَّث كل رمز مخزّن تلقائياً يومياً على الخادم (Edge Function + Cron) — لا حاجة للضغط يدوياً كل يوم. النشر: راجع «دليل-التحديث-اليومي.md».
+        </div>
+        <div id="histStatsBox" style="font-size:11.5px;color:var(--txt-m);margin-bottom:8px">⏳ ...</div>
+        <div id="histSyncProg" style="font-size:11px;color:#93c5fd;margin-bottom:8px;min-height:14px"></div>
+        <button id="histSyncBtn" onclick="adminSyncHistorical()" style="width:100%;padding:12px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:13px;color:#fff;
+          background:linear-gradient(135deg,#6d28d9,#8b5cf6)">📥 جلب/تحديث البيانات التاريخية (5 سنوات)</button>
+      </div>` : ''}
       </div>
 
-      <!-- العمود الأيسر: إدارة المستخدمين -->
-      <div style="${card}">
+      <!-- العمود الأساسي (الأهم): إدارة المستخدمين + سجل المدفوعات -->
+      ${seeUsers ? `<div class="admCol-primary" style="display:flex;flex-direction:column;gap:16px">
+        <div style="${card}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
           <div style="${head};margin-bottom:0">
             👥 المستخدمون <span id="admUsersCount" style="color:var(--txt-m);font-weight:600"></span>
           </div>
-          <button onclick="adminCreateUserModal()" style="padding:7px 14px;border-radius:8px;border:none;
+          ${owner ? `<button onclick="adminCreateUserModal()" style="padding:7px 14px;border-radius:8px;border:none;
             background:linear-gradient(135deg,#166534,#22c55e);color:#fff;
-            font-size:11.5px;font-weight:800;cursor:pointer">➕ إضافة مستخدم</button>
+            font-size:11.5px;font-weight:800;cursor:pointer">➕ إضافة مستخدم</button>` : ''}
         </div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
           <label style="font-size:11px;color:var(--txt-m);display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -3095,12 +3543,406 @@ function renderAdminSection() {
         </div>
         <div id="admUsersBox" style="max-height:640px;overflow-y:auto;border:1px solid var(--bdr);
              border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m)">⏳ جارٍ تحميل المستخدمين...</div>
+        </div>
+
+        <!-- 🧾 سجل المدفوعات (أسفل المستخدمين في نفس العمود) -->
+        <div style="${card}">
+      <style>
+        @keyframes payFlash { 0%,100%{opacity:1} 50%{opacity:.35} }
+        @keyframes payGlow { 0%,100%{box-shadow:0 0 0 rgba(245,158,11,0)} 50%{box-shadow:0 0 10px rgba(245,158,11,.5)} }
+        #admPaymentsBox .pay-new { animation: payGlow 1.6s ease-in-out infinite }
+        .pay-newb { animation: payFlash 1s ease-in-out infinite }
+      </style>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="${head};margin-bottom:0">🧾 سجل المدفوعات <span id="admPayCount" style="color:var(--txt-m);font-weight:600"></span> <span id="admPayNew"></span></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select id="admPayFilter" onchange="adminRenderPayments()" style="padding:7px 10px;border-radius:8px;
+            border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;font-family:inherit">
+            <option value="all">الكل</option>
+            <option value="pending">⏳ قيد المراجعة</option>
+            <option value="confirmed">✅ مؤكّدة</option>
+            <option value="rejected">❌ مرفوضة</option>
+          </select>
+          <button onclick="adminLoadPayments()" style="padding:7px 12px;border-radius:8px;border:1px solid var(--bdr);
+            background:var(--surf-alt);color:var(--txt);font-size:11.5px;font-weight:700;cursor:pointer">🔄 تحديث</button>
+        </div>
       </div>
+      <input id="admPaySearch" type="text" placeholder="🔍 ابحث بالاسم أو الإيميل أو البنك أو المبلغ أو نص الطلب..."
+        oninput="adminRenderPayments()"
+        style="width:100%;box-sizing:border-box;margin-bottom:10px;padding:10px 13px;border-radius:10px;
+               border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none;font-family:inherit">
+      <div id="admPaymentsBox" style="max-height:520px;overflow-y:auto;border:1px solid var(--bdr);
+           border-radius:10px;padding:4px 10px;font-size:12px;color:var(--txt-m)">⏳ جارٍ التحميل...</div>
+        </div>
+      </div>` : ''}
 
     </div>`;
-  adminLoadUsers();
-  adminLoadStats();
-  adminLoadSupport();
+  if (seeUsers) adminLoadUsers();
+  if (owner)    adminLoadStats();
+  if (seeSup)   adminLoadSupport();
+  if (owner)    _admRenderBanksList();
+  if (owner)    adminLoadActivity();
+  if (owner)    histLoadStats();
+  if (seeUsers) adminLoadPayments();
+}
+
+/* ── 🧾 سجل المدفوعات ── */
+let _admPayments = [];
+let _payJustActivated = [];   // مفاتيح الأقسام المفعّلة للتوّ (لتمييزها بإطار أخضر في نافذة الإدارة)
+async function adminLoadPayments() {
+  const box = document.getElementById('admPaymentsBox');
+  if (!box) return;
+  try {
+    const [{ data, error }, repRes] = await Promise.all([
+      sb.from('payments').select('*').order('created_at', { ascending: false }).limit(300),
+      sb.from('support_requests').select('email,subject,reply,replied_at')
+        .eq('req_type', '💳 دفع/تجديد اشتراك').not('reply', 'is', null),
+    ]);
+    if (error) throw error;
+    _admPayments = data || [];
+    /* اربط رد الدعم بكل عملية عبر (الإيميل + نص الرسالة المطابق) */
+    const repMap = {};
+    (repRes && repRes.data || []).forEach(r => {
+      const key = (r.email || '').toLowerCase() + '||' + (r.subject || '');
+      repMap[key] = r.reply;
+    });
+    _admPayments.forEach(p => {
+      p._reply = repMap[(p.email || '').toLowerCase() + '||' + (p.message || '')] || null;
+    });
+    adminRenderPayments();
+  } catch (e) {
+    const msg = String(e && e.message || e);
+    const hint = msg.includes('does not exist') || msg.includes('relation')
+      ? 'جدول payments غير موجود — نفّذ ملف supabase-roles.sql المحدّث'
+      : (msg.includes('permission') || msg.includes('policy')) ? 'سياسات RLS تمنع القراءة' : '';
+    box.innerHTML = `<div style="padding:10px;line-height:1.8">⚠️ تعذّر جلب السجل<br>
+      <span style="font-size:10.5px">${hint}</span></div>`;
+  }
+}
+
+/* ↩️ الرد على طلب دفع مباشرة من سجل المدفوعات — يصل للمستخدم في «رسائلي» */
+function adminTogglePayReply(id) {
+  const d = document.getElementById('payRep-' + id);
+  if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+
+async function adminSendPaymentReply(id) {
+  if (!(isSuperAdmin() || can('users') || can('support'))) { showToast('⛔ لا تملك صلاحية الرد'); return; }
+  const p = _admPayments.find(x => x.id === id);
+  if (!p) { showToast('⚠️ العملية غير موجودة'); return; }
+  const el = document.getElementById('payRepTxt-' + id);
+  const txt = (el && el.value || '').trim();
+  if (!txt) { showToast('⚠️ اكتب الرد أولاً'); return; }
+  const now = new Date().toISOString();
+  /* ابحث عن طلب الدعم المرتبط بهذه العملية (نفس الإيميل ونص الرسالة) لتحديث ردّه،
+     وإن لم يوجد أنشئ سجلاً جديداً حتى يصل الرد للمستخدم في «رسائلي» مضموناً */
+  let targetId = null;
+  try {
+    const { data } = await sb.from('support_requests')
+      .select('id')
+      .eq('email', p.email)
+      .eq('req_type', '💳 دفع/تجديد اشتراك')
+      .eq('subject', p.message || '')
+      .order('created_at', { ascending: false }).limit(1);
+    if (data && data[0]) targetId = data[0].id;
+  } catch (e) {}
+  let error;
+  if (targetId) {
+    ({ error } = await sb.from('support_requests')
+      .update({ reply: txt, replied_at: now, status: 'done' }).eq('id', targetId));
+  } else {
+    ({ error } = await sb.from('support_requests').insert({
+      email: p.email,
+      req_type: '💳 دفع/تجديد اشتراك',
+      subject: p.message || ('طلب دفع #' + id),
+      reply: txt, replied_at: now, status: 'done',
+    }));
+  }
+  if (error) { _admErr(error, 'فشل إرسال الرد'); return; }
+  p._reply = txt;
+  logAdminAction('reply', p.email || ('#' + id), txt);
+  showToast('✅ أُرسل الرد — سيظهر للمستخدم في «📨 رسائلي» فور فتحه التطبيق');
+  adminRenderPayments();
+}
+
+function _payStatusBadge(st) {
+  if (st === 'confirmed') return '<span style="background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.4);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700">✅ مؤكّدة</span>';
+  if (st === 'rejected')  return '<span style="background:rgba(248,113,113,.12);color:#fca5a5;border:1px solid rgba(248,113,113,.4);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700">❌ مرفوضة</span>';
+  return '<span style="background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.4);border-radius:20px;padding:2px 9px;font-size:10px;font-weight:700">⏳ قيد المراجعة</span>';
+}
+
+function adminRenderPayments() {
+  const box = document.getElementById('admPaymentsBox');
+  if (!box) return;
+  const filt = (document.getElementById('admPayFilter') || {}).value || 'all';
+  const q = ((document.getElementById('admPaySearch') || {}).value || '').trim().toLowerCase();
+  let list = filt === 'all' ? _admPayments : _admPayments.filter(p => (p.status || 'pending') === filt);
+  if (q) {
+    list = list.filter(p => {
+      const svcs = Array.isArray(p.services) ? p.services.map(s => s.label || s.k).join(' ') : '';
+      const hay = [p.sender_name, p.email, p.bank_name, p.bank_holder, p.bank_iban,
+        p.bank_account, p.total, p.message, svcs, p.status]
+        .map(x => String(x == null ? '' : x).toLowerCase()).join(' | ');
+      return hay.includes(q);
+    });
+  }
+  const cnt = document.getElementById('admPayCount');
+  if (cnt) cnt.textContent = q || filt !== 'all' ? `(${list.length}/${_admPayments.length})` : `(${_admPayments.length})`;
+  /* عدّاد غير المقروء (قيد المراجعة) في الترويسة مع وميض */
+  const newN = _admPayments.filter(p => (p.status || 'pending') === 'pending').length;
+  const newEl = document.getElementById('admPayNew');
+  if (newEl) newEl.innerHTML = newN
+    ? `<span class="pay-newb" style="background:#f59e0b;color:#1a1a1a;border-radius:20px;padding:1px 9px;font-size:10px;font-weight:800">🆕 ${newN} جديدة</span>` : '';
+  if (!_admPayments.length) { box.innerHTML = '<div style="padding:10px;text-align:center">لا عمليات دفع بعد</div>'; return; }
+  if (!list.length) { box.innerHTML = `<div style="padding:10px;text-align:center">لا نتائج${q ? ' لـ«' + q + '»' : ' لهذا الفلتر'}</div>`; return; }
+  const canManage = isSuperAdmin() || can('users');
+  box.innerHTML = list.map(p => {
+    const svcs = Array.isArray(p.services) ? p.services : [];
+    const svcText = svcs.map(s => `${s.label || s.k}: ${s.price} ر.س`).join(' · ');
+    const when = p.created_at ? new Date(p.created_at).toLocaleString('ar', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const st = p.status || 'pending';
+    const bcol = st === 'confirmed' ? '#22c55e' : st === 'rejected' ? '#ef4444' : '#f59e0b';
+    const isNew = st === 'pending';
+    return `
+    <div class="${isNew ? 'pay-new' : ''}" style="border-bottom:1px solid var(--bdr);border-right:3px solid ${bcol};
+         border-radius:7px;padding:10px 10px 10px 2px;margin:4px 0;background:${isNew ? 'rgba(245,158,11,.06)' : 'transparent'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12.5px;font-weight:800;color:var(--txt)">💰 ${p.total || 0} ر.س ${_payStatusBadge(st)} ${isNew ? '<span class="pay-newb" style="background:#f59e0b;color:#1a1a1a;border-radius:20px;padding:1px 8px;font-size:9.5px;font-weight:800">🆕 جديدة</span>' : ''}</span>
+        <span style="font-size:10px;color:var(--txt-m)">${when}</span>
+      </div>
+      <div style="font-size:11px;color:var(--txt);margin-top:4px">👤 ${p.sender_name || '—'} <span style="color:var(--txt-m);direction:ltr">(${p.email || ''})</span></div>
+      ${p.message ? `<div style="font-size:11px;color:#fff;font-weight:600;margin-top:6px;line-height:1.7;
+           background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 10px;
+           word-break:break-word;overflow-wrap:anywhere;white-space:pre-wrap">${String(p.message).replace(/</g,'&lt;')}</div>`
+        : `${svcText ? `<div style="font-size:10.5px;color:var(--txt-m);margin-top:3px">🧾 ${svcText}</div>` : ''}
+           <div style="font-size:10.5px;color:var(--txt-m);margin-top:3px">🏦 ${p.bank_name || '—'}${p.bank_iban ? ` · <span style="direction:ltr">${p.bank_iban}</span>` : ''}</div>`}
+      ${p._reply ? `<div style="background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);border-radius:9px;padding:8px 10px;margin-top:6px">
+        <div style="font-size:10px;color:#4ade80;font-weight:700;margin-bottom:3px">↩️ رد الدعم:</div>
+        <div style="font-size:11px;color:var(--txt);line-height:1.7;word-break:break-word;overflow-wrap:anywhere;white-space:pre-wrap">${String(p._reply).replace(/</g,'&lt;')}</div>
+      </div>` : ''}
+      ${canManage ? `<div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
+        <button onclick="_payConfirmAction(${p.id},'confirmed')" style="padding:5px 11px;border-radius:8px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:#86efac;font-size:10.5px;font-weight:700;cursor:pointer">✅ تأكيد</button>
+        <button onclick="_payConfirmAction(${p.id},'rejected')" style="padding:5px 11px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.1);color:#fca5a5;font-size:10.5px;font-weight:700;cursor:pointer">❌ رفض</button>
+        <button onclick="_payConfirmAction(${p.id},'pending')" style="padding:5px 11px;border-radius:8px;border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt-m);font-size:10.5px;font-weight:700;cursor:pointer">⏳ إعادة</button>
+        <button onclick="adminTogglePayReply(${p.id})" style="padding:5px 11px;border-radius:8px;border:1px solid rgba(96,165,250,.4);background:rgba(96,165,250,.1);color:#93c5fd;font-size:10.5px;font-weight:700;cursor:pointer">↩️ رد</button>
+        ${isSuperAdmin() ? `<button onclick="_payConfirmAction(${p.id},'delete')" style="padding:5px 11px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);color:#fca5a5;font-size:10.5px;font-weight:700;cursor:pointer">🗑️ حذف</button>` : ''}
+      </div>
+      <div id="payRep-${p.id}" style="display:none;margin-top:7px">
+        <textarea id="payRepTxt-${p.id}" rows="2" maxlength="500" placeholder="اكتب ردك للمستخدم — سيصله في «📨 رسائلي»..."
+          style="width:100%;box-sizing:border-box;padding:9px 11px;border-radius:9px;resize:none;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;font-family:inherit">${p._reply ? String(p._reply).replace(/</g,'&lt;') : ''}</textarea>
+        <button onclick="adminSendPaymentReply(${p.id})" style="width:100%;margin-top:5px;padding:9px;border-radius:9px;border:none;cursor:pointer;font-weight:800;font-size:12px;color:#fff;background:linear-gradient(135deg,#166534,#22c55e)">📤 إرسال الرد للمستخدم</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* نافذة تأكيد قبل تنفيذ أي إجراء على عملية دفع */
+function _payConfirmAction(id, action) {
+  const canManage = isSuperAdmin() || can('users');
+  if (!canManage || (action === 'delete' && !isSuperAdmin())) { showToast('⛔ لا تملك الصلاحية'); return; }
+  const p = _admPayments.find(x => x.id === id) || {};
+  const who = `${p.sender_name || '—'} · ${p.total || 0} ر.س`;
+  const cfg = {
+    confirmed: { icon: '✅', title: 'تأكيد العملية', msg: 'سيتم تعليم هذه العملية كـ«مؤكّدة».', btn: 'تأكيد ✅', grad: 'linear-gradient(135deg,#166534,#22c55e)', fn: `adminSetPaymentStatus(${id},'confirmed')` },
+    rejected:  { icon: '❌', title: 'رفض العملية',  msg: 'سيتم تعليم هذه العملية كـ«مرفوضة».', btn: 'رفض ❌',  grad: 'linear-gradient(135deg,#b91c1c,#ef4444)', fn: `adminSetPaymentStatus(${id},'rejected')` },
+    pending:   { icon: '⏳', title: 'إعادة للمراجعة', msg: 'ستُعاد هذه العملية إلى حالة «قيد المراجعة».', btn: 'إعادة ⏳', grad: 'linear-gradient(135deg,#f59e0b,#fbbf24)', fn: `adminSetPaymentStatus(${id},'pending')` },
+    delete:    { icon: '🗑️', title: 'حذف العملية نهائياً', msg: 'سيُحذف هذا السجل نهائياً ولا يمكن التراجع.', btn: 'حذف نهائي 🗑️', grad: 'linear-gradient(135deg,#b91c1c,#ef4444)', fn: `adminDeletePayment(${id})` },
+  }[action];
+  if (!cfg) return;
+  const old = document.getElementById('payConfirm'); if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'payConfirm';
+  el.style.cssText = 'position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px';
+  el.onclick = (e) => { if (e.target === el) el.remove(); };
+  el.innerHTML = `
+    <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:16px;width:100%;max-width:360px;padding:22px;text-align:center">
+      <div style="font-size:34px;margin-bottom:8px">${cfg.icon}</div>
+      <div style="font-size:15px;font-weight:800;margin-bottom:6px;color:var(--txt)">${cfg.title}</div>
+      <div style="font-size:12px;color:var(--txt-m);margin-bottom:4px">${who}</div>
+      <div style="font-size:11.5px;color:var(--txt-m);line-height:1.7;margin-bottom:14px">${cfg.msg}</div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('payConfirm').remove()"
+          style="flex:1;padding:11px;border-radius:10px;border:1px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer">إلغاء</button>
+        <button onclick="document.getElementById('payConfirm').remove();${cfg.fn}"
+          style="flex:1;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:13px;font-weight:800;color:#fff;background:${cfg.grad}">${cfg.btn}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+/* 💳 تفعيل اشتراكات أقسام العملية للمستخدم (قد تكون أكثر من قسم) */
+async function _payActivateSubs(p) {
+  const svcs = Array.isArray(p.services) ? p.services : [];
+  if (!svcs.length || !p.email) return [];
+  /* اجلب قيود المستخدم الحالية للحفاظ عليها */
+  let prev = _admRestr[p.email];
+  if (!prev) {
+    try { const { data } = await sb.from('user_restrictions').select('*').eq('email', p.email).maybeSingle(); prev = data || {}; }
+    catch (e) { prev = {}; }
+  }
+  const now = new Date().toISOString();
+  const subs = Object.assign({}, prev.subs || {});
+  const activated = [];
+  svcs.forEach(s => {
+    if (!s || !s.k) return;
+    const po = (prev.subs && prev.subs[s.k]) || {};
+    subs[s.k] = {
+      plan: 'paid', price: Number(s.price) || 0, days: Number(s.days) || 0, start: now, show_pay: true,
+      /* حافظ على قيود المنبثقات/الضبابية السابقة */
+      no_popups: !!po.no_popups, blur: !!po.blur,
+      /* 🎯 الأهداف ووقف الخسارة = تلقائي (حسب الاشتراك): مفتوحة أثناء الاشتراك، مظلّلة بعد انتهائه */
+      lock_targets: null,
+    };
+    activated.push((s.label || s.k).replace(/^\S+\s/, ''));
+  });
+  const acc = subs.account || {};
+  const row = {
+    email: p.email,
+    hidden_tabs: prev.hidden_tabs || [],
+    blocked: !!prev.blocked,
+    no_popups: !!prev.no_popups,
+    blur_view: !!prev.blur_view,
+    subs,
+    sub_plan: acc.plan || prev.sub_plan || 'free',
+    sub_price: acc.price != null ? acc.price : (prev.sub_price != null ? prev.sub_price : 0),
+    sub_days: acc.days != null ? acc.days : (prev.sub_days != null ? prev.sub_days : 0),
+    sub_start: acc.start || prev.sub_start || null,
+    sub_show_pay: acc.show_pay != null ? acc.show_pay : (prev.sub_show_pay != null ? prev.sub_show_pay : true),
+    sub_exempt: !!prev.sub_exempt,
+    updated_at: now,
+  };
+  const { error } = await sb.from('user_restrictions').upsert(row);
+  if (error) throw error;
+  _admRestr[p.email] = row;
+  return activated;
+}
+
+async function adminSetPaymentStatus(id, status) {
+  if (!(isSuperAdmin() || can('users'))) { showToast('⛔ لا تملك صلاحية إدارة المدفوعات'); return; }
+  const p = _admPayments.find(x => x.id === id);
+  /* ✅ عند التأكيد: فعّل اشتراكات الأقسام المذكورة في العملية للمستخدم */
+  if (status === 'confirmed' && p) {
+    try {
+      const done = await _payActivateSubs(p);
+      showToast(done.length ? '✅ أُكّدت العملية وفُعّلت: ' + done.join('، ') : '✅ أُكّدت العملية');
+    } catch (e) { _admErr(e, 'فشل تفعيل الاشتراك'); return; }
+  }
+  const { error } = await sb.from('payments').update({ status }).eq('id', id);
+  if (error) { _admErr(error, 'فشل تحديث الحالة'); return; }
+  if (p) p.status = status;
+  logAdminAction(status === 'confirmed' ? 'payment_confirm' : status === 'rejected' ? 'payment_reject' : 'payment_reset',
+                 (p && p.email) || ('#' + id), (p && p.amount != null) ? ('المبلغ: ' + p.amount + ' ر.س') : '');
+  if (status === 'rejected') showToast('❌ رُفضت العملية');
+  else if (status === 'pending') showToast('⏳ أُعيدت للمراجعة');
+  adminRenderPayments();
+  /* ✅ بعد التأكيد: افتح نافذة إدارة المستخدم مع تمييز الأقسام المفعّلة بإطار أخضر */
+  if (status === 'confirmed' && p && p.email) {
+    if (typeof adminLoadUsers === 'function') adminLoadUsers();
+    _payJustActivated = (Array.isArray(p.services) ? p.services : []).map(s => s && s.k).filter(Boolean);
+    if (typeof adminEditUser === 'function') adminEditUser(p.email);
+  }
+}
+
+async function adminDeletePayment(id) {
+  if (!isSuperAdmin()) { showToast('⛔ حذف السجل للأدمن الرئيسي فقط'); return; }
+  const _pDel = _admPayments.find(x => x.id === id);
+  const { error } = await sb.from('payments').delete().eq('id', id);
+  if (error) { _admErr(error, 'فشل الحذف'); return; }
+  logAdminAction('delete_payment', (_pDel && _pDel.email) || ('#' + id), (_pDel && _pDel.amount != null) ? ('المبلغ: ' + _pDel.amount + ' ر.س') : '');
+  _admPayments = _admPayments.filter(x => x.id !== id);
+  showToast('🗑️ حُذفت العملية من السجل');
+  adminRenderPayments();
+}
+
+/* ── 🏦 إدارة الحسابات البنكية (للأدمن الرئيسي) ── */
+function _admRenderBanksList() {
+  const box = document.getElementById('admBanksList');
+  if (!box) return;
+  const banks = (appSettings && Array.isArray(appSettings.banks)) ? appSettings.banks : [];
+  if (!banks.length) {
+    box.innerHTML = `<div style="font-size:11px;color:var(--txt-m);padding:8px 0">لا حسابات مضافة — يظهر للمستخدم حساب تجريبي حتى تضيف حسابك.</div>`;
+    return;
+  }
+  box.innerHTML = banks.map(bk => `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;border:1px solid var(--bdr);border-radius:11px;padding:10px 12px;margin-bottom:8px;background:var(--surf-alt)">
+      <div style="min-width:0">
+        <div style="font-size:12.5px;font-weight:800;color:var(--txt)">${bk.name || 'بنك'}</div>
+        ${bk.holder ? `<div style="font-size:10.5px;color:var(--txt-m)">المستفيد: ${bk.holder}</div>` : ''}
+        ${bk.iban ? `<div style="font-size:10.5px;color:var(--txt-m);direction:ltr;text-align:left">IBAN: ${bk.iban}</div>` : ''}
+        ${bk.account ? `<div style="font-size:10.5px;color:var(--txt-m);direction:ltr;text-align:left">الحساب: ${bk.account}</div>` : ''}
+      </div>
+      <button onclick="adminRemoveBank('${bk.id}')" title="حذف"
+        style="flex-shrink:0;padding:6px 9px;border-radius:8px;border:1px solid rgba(248,113,113,.4);
+               background:rgba(248,113,113,.1);color:#fca5a5;font-size:11px;font-weight:700;cursor:pointer">🗑️</button>
+    </div>`).join('');
+}
+
+/* حفظ قائمة البنوك في app_settings مع الحفاظ على بقية الإعدادات */
+async function _admSaveBanks(banks) {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return false; }
+  appSettings = Object.assign({}, appSettings, { banks });
+  const { error } = await sb.from('app_settings')
+    .upsert({ id: 1, data: appSettings, updated_at: new Date().toISOString() });
+  if (error) { _admErr(error, 'فشل حفظ الحسابات البنكية'); return false; }
+  return true;
+}
+
+async function adminAddBank() {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const name    = (document.getElementById('admBankName').value || '').trim();
+  const holder  = (document.getElementById('admBankHolder').value || '').trim();
+  const iban    = (document.getElementById('admBankIban').value || '').trim().replace(/\s/g, '');
+  const account = (document.getElementById('admBankAccount').value || '').trim();
+  const note    = (document.getElementById('admBankNote').value || '').trim();
+  if (!name)  { showToast('⚠️ اكتب اسم البنك'); return; }
+  if (!iban && !account) { showToast('⚠️ أدخل الآيبان أو رقم الحساب'); return; }
+  const banks = (appSettings && Array.isArray(appSettings.banks)) ? appSettings.banks.slice() : [];
+  banks.push({ id: 'bk-' + Date.now().toString(36), name, holder, iban, account, note });
+  if (await _admSaveBanks(banks)) {
+    showToast('✅ أُضيف الحساب البنكي');
+    ['admBankName','admBankHolder','admBankIban','admBankAccount','admBankNote'].forEach(id => {
+      const e = document.getElementById(id); if (e) e.value = '';
+    });
+    _admRenderBanksList();
+  }
+}
+
+function adminRemoveBank(id) {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const bk = ((appSettings && appSettings.banks) || []).find(b => b.id === id);
+  const name = bk ? (bk.name || 'الحساب') : 'الحساب';
+  clearModalOpen(
+    1,
+    `سيتم حذف الحساب البنكي <strong>${name}</strong> نهائياً. لن يظهر بعدها للمستخدمين في صفحة الدفع، ولا يمكن التراجع عن هذا الإجراء.`,
+    () => { _adminRemoveBankConfirmed(id); },
+    { title:'تأكيد حذف الحساب البنكي', subtitle:'سيتم حذف الحساب البنكي نهائياً', hideCount:true, confirmText:'تأكيد الحذف' }
+  );
+}
+
+async function _adminRemoveBankConfirmed(id) {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const banks = ((appSettings && appSettings.banks) || []).filter(b => b.id !== id);
+  if (await _admSaveBanks(banks)) { showToast('🗑️ حُذف الحساب'); _admRenderBanksList(); }
+}
+
+/* 💵 حفظ الأسعار العامة للخدمات (تظهر في صفحة الدفع لكل المستخدمين) */
+async function adminSaveServicePrices() {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const keys = ['watchlist', 'monitor', 'returns', 'all', 'analysis'];
+  const sp = {};
+  keys.forEach(k => {
+    const pEl = document.getElementById('admSvc-' + k + '-price');
+    const dEl = document.getElementById('admSvc-' + k + '-days');
+    if (!pEl) return;
+    const price = parseFloat(pEl.value) || 0;
+    const days  = parseInt(dEl && dEl.value, 10) || 0;
+    if (price > 0) sp[k] = { price, days };
+  });
+  appSettings = Object.assign({}, appSettings, { servicePrices: sp });
+  const { error } = await sb.from('app_settings')
+    .upsert({ id: 1, data: appSettings, updated_at: new Date().toISOString() });
+  if (error) { _admErr(error, 'فشل حفظ الأسعار'); return; }
+  showToast('✅ حُفظت أسعار الخدمات — تظهر للمستخدمين في صفحة الدفع');
 }
 
 /* ── صندوق طلبات الدعم ── */
@@ -3116,6 +3958,7 @@ async function adminLoadSupport() {
     /* المسجلون: ردّ داخل التطبيق · الزوار: ردّ عبر الإيميل */
     const registered = new Set((profs || []).map(p => (p.email || '').toLowerCase()));
     const list = data || [];
+    _admSupportList = list;   /* 🛡️ لتحديد إيميل المستخدم عند تسجيل الرد/الحذف */
     /* فتحُ الصندوق يعتبر الطلبات «مُطَّلعاً عليها» — فلا يتكرر التنبيه المنبثق لنفسها */
     if (list.length > 0) {
       try { localStorage.setItem('tp_admin_sup_seen', list[0].created_at); } catch (e) {}
@@ -3161,7 +4004,8 @@ async function adminLoadSupport() {
                      background:rgba(74,222,128,.1);color:#86efac;font-size:10.5px;font-weight:700;cursor:pointer">✓</button>` : '<span style="font-size:10px;align-self:center">✓</span>'}
           </div>
         </div>
-        <div style="font-size:11.5px;color:var(--txt-2);margin-top:4px;line-height:1.7;
+        <div style="font-size:11.5px;color:#fff;font-weight:600;margin-top:4px;line-height:1.7;
+                    background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 10px;
                     word-break:break-word;overflow-wrap:anywhere;white-space:pre-wrap">${String(r.subject || '').replace(/</g,'&lt;')}</div>
         ${r.reply ? `<div style="font-size:11px;color:#86efac;margin-top:4px;line-height:1.7;
                     word-break:break-word;overflow-wrap:anywhere">↩️ ردك: ${String(r.reply).replace(/</g,'&lt;')}</div>` : ''}
@@ -3183,6 +4027,7 @@ async function adminLoadSupport() {
 }
 
 async function adminSupportDone(id) {
+  if (!can('support')) { showToast('⛔ لا تملك صلاحية الدعم'); return; }
   const { error } = await sb.from('support_requests').update({ status: 'done' }).eq('id', id);
   if (error) { _admErr(error, 'فشل التحديث'); return; }
   adminLoadSupport();
@@ -3194,6 +4039,7 @@ function adminToggleReply(id) {
 }
 
 async function adminSendReply(id) {
+  if (!can('support')) { showToast('⛔ لا تملك صلاحية الدعم'); return; }
   const txt = document.getElementById('admRepTxt-' + id).value.trim();
   if (!txt) { showToast('⚠️ اكتب الرد أولاً'); return; }
   const { error } = await sb.from('support_requests').update({
@@ -3202,12 +4048,14 @@ async function adminSendReply(id) {
     status: 'done',
   }).eq('id', id);
   if (error) { _admErr(error, 'فشل إرسال الرد'); return; }
+  logAdminAction('reply', (( _admSupportList.find(x => x.id === id) || {}).email) || ('#' + id), txt);
   showToast('✅ أُرسل الرد — سيظهر للمستخدم في «📨 رسائلي» فور فتحه التطبيق');
   adminLoadSupport();
 }
 
 /* نافذة تأكيد الحذف الأنيقة (بنمط بطاقة داكنة وزر أحمر متدرج) */
 function adminSupportDelete(id, email) {
+  if (!can('support')) { showToast('⛔ لا تملك صلاحية الدعم'); return; }
   const old = document.getElementById('admDelConfirm');
   if (old) old.remove();
   const d = document.createElement('div');
@@ -3282,6 +4130,7 @@ async function _adminAuthApi(payload) {
 }
 
 function adminCreateUserModal() {
+  if (!isSuperAdmin()) { showToast('⛔ إنشاء الحسابات للأدمن الرئيسي فقط'); return; }
   const old = document.getElementById('adminCreatePanel');
   if (old) old.remove();
   const el = document.createElement('div');
@@ -3313,6 +4162,7 @@ function adminCreateUserModal() {
 }
 
 async function adminCreateUser() {
+  if (!isSuperAdmin()) { showToast('⛔ إنشاء الحسابات للأدمن الرئيسي فقط'); return; }
   const email = document.getElementById('admNewEmail').value.trim();
   const pass  = document.getElementById('admNewPass').value;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { showToast('⚠️ اكتب بريداً صحيحاً'); return; }
@@ -3327,6 +4177,7 @@ async function adminCreateUser() {
 }
 
 function adminSetPassword(email) {
+  if (!isSuperAdmin()) { showToast('⛔ تغيير كلمات المرور للأدمن الرئيسي فقط'); return; }
   const old = document.getElementById('admPassPanel');
   if (old) old.remove();
   const d = document.createElement('div');
@@ -3381,6 +4232,7 @@ function adminSetPassword(email) {
 }
 
 async function adminSetPasswordConfirmed(email) {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
   const pass = document.getElementById('admPassNew').value;
   if (!pass || pass.length < 6) { showToast('⚠️ كلمة المرور 6 أحرف على الأقل'); return; }
   try {
@@ -3446,8 +4298,10 @@ async function adminSendMessage(email) {
 async function adminSupportDeleteConfirmed(id) {
   const c = document.getElementById('admDelConfirm');
   if (c) c.remove();
+  const _sDel = _admSupportList.find(x => x.id === id) || {};
   const { error } = await sb.from('support_requests').delete().eq('id', id);
   if (error) { _admErr(error, 'فشل الحذف'); return; }
+  logAdminAction('delete_support', _sDel.email || ('#' + id), _sDel.subject ? String(_sDel.subject).slice(0, 80) : '');
   showToast('🗑️ حُذفت الرسالة');
   adminLoadSupport();
 }
@@ -3559,6 +4413,7 @@ async function adminCopyEmail(email) {
 
 /* ── 🗑️ حذف حساب مستخدم نهائياً (عبر دالة admin-users السحابية) ── */
 function adminDeleteUser(email) {
+  if (!isSuperAdmin()) { showToast('⛔ حذف الحسابات للأدمن الرئيسي فقط'); return; }
   if (ADMIN_EMAILS.includes((email || '').toLowerCase())) { showToast('⛔ لا يمكن حذف حساب أدمن'); return; }
   const old = document.getElementById('admDelUserPanel');
   if (old) old.remove();
@@ -3595,6 +4450,7 @@ function adminDeleteUser(email) {
 }
 
 async function adminDeleteUserConfirmed(email) {
+  if (!isSuperAdmin()) { showToast('⛔ حذف الحسابات للأدمن الرئيسي فقط'); return; }
   const passEl = document.getElementById('admDelUserPass');
   const pass = passEl ? passEl.value : '';
   if (!pass) { showToast('⚠️ أدخل كلمة مرور الأدمن للتأكيد'); if (passEl) passEl.focus(); return; }
@@ -3621,6 +4477,7 @@ async function adminDeleteUserConfirmed(email) {
   /* تنظيف احتياطي من الجداول (الدالة السحابية تنظف أيضاً) */
   try { await sb.from('user_restrictions').delete().eq('email', email); } catch (e) {}
   try { await sb.from('profiles').delete().eq('email', email); } catch (e) {}
+  logAdminAction('delete_user', email, '');
   showToast('✅ حُذف الحساب نهائياً: ' + email);
   adminLoadUsers();
 }
@@ -3651,11 +4508,14 @@ function adminRenderUsers(query) {
       };
       const parts = [];
       const subBits = [];
+      let anyExpired = false, anyActivePaid = false;
       SUB_SECTION_DEFS.forEach(d => {
         const x = _subInfo(r, d.k);
         if (x.plan !== 'paid') return;
+        if (x.expired) anyExpired = true; else anyActivePaid = true;
         subBits.push(`${d.t.replace(/^\S+\s/, '')}: ${x.expired ? '⏳منتهٍ' : (x.daysLeft !== null ? 'باقي ' + x.daysLeft + 'ي' : 'مفعّل')}${x.price ? ' (' + x.price + ' ر.س)' : ''}`);
       });
+      const subExpired = anyExpired && !r.blocked;
       if (subBits.length) parts.push('💳 ' + subBits.join(' · '));
       if (r.sub_exempt) parts.push('🛡️ مستثنى من «على الكل»');
       if (r.blocked) parts.push('⛔ موقوف كلياً');
@@ -3668,9 +4528,12 @@ function adminRenderUsers(query) {
       }
       const status = parts.join(' · ');
       const isMe = sbUser && u.email === sbUser.email;
+      const expiredBadge = subExpired
+        ? ' <span style="display:inline-block;background:rgba(248,113,113,.18);color:#fca5a5;border:1px solid rgba(248,113,113,.5);border-radius:20px;padding:1px 8px;font-size:9px;font-weight:800;direction:rtl;white-space:nowrap">⏳ اشتراك منتهٍ</span>'
+        : '';
       return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;
-                  padding:9px 2px;border-bottom:1px solid var(--bdr)">
+                  padding:9px 2px;border-bottom:1px solid var(--bdr)${subExpired ? ';background:rgba(248,113,113,.06);border-right:3px solid #f87171;padding-right:7px;border-radius:0 8px 8px 0' : ''}">
         <div style="display:flex;align-items:center;gap:8px;min-width:0">
           ${isMe ? '<span style="width:15px"></span>' : `<input type="checkbox" class="admUserSel" data-email="${u.email}"
             style="width:15px;height:15px;cursor:pointer;flex-shrink:0">`}
@@ -3679,8 +4542,8 @@ function adminRenderUsers(query) {
                         overflow:hidden;text-overflow:ellipsis">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
                     background:${_isOnline(u.last_seen) ? '#22c55e' : 'rgba(255,255,255,.2)'};
-                    ${_isOnline(u.last_seen) ? 'box-shadow:0 0 5px #22c55e;' : ''}margin-left:4px"></span>${u.email}${isMe ? ' 👑' : ''}</div>
-            <div style="font-size:10px;color:${r.blocked ? '#f87171' : 'var(--txt-m)'}">${status}</div>
+                    ${_isOnline(u.last_seen) ? 'box-shadow:0 0 5px #22c55e;' : ''}margin-left:4px"></span>${u.email}${isMe ? ' 👑' : ''}${(u.role === 'supervisor' && !ADMIN_EMAILS.includes((u.email || '').toLowerCase())) ? ' <span style="display:inline-block;background:rgba(139,92,246,.18);color:#c4b5fd;border:1px solid rgba(139,92,246,.4);border-radius:20px;padding:1px 7px;font-size:9px;font-weight:700;direction:rtl">🛡️ مشرف</span>' : ''}${expiredBadge}</div>
+            <div style="font-size:10px;color:${r.blocked ? '#f87171' : (subExpired ? '#fca5a5' : 'var(--txt-m)')}">${status}</div>
             <div style="font-size:9.5px;color:${_isOnline(u.last_seen) ? '#4ade80' : 'var(--txt-m)'}">${_lastSeenText(u.last_seen)}</div>
           </div>
         </div>
@@ -3698,12 +4561,205 @@ function adminRenderUsers(query) {
           <button onclick="adminEditUser('${u.email}')"
             style="padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);
                    background:var(--surf-alt);color:var(--txt);font-size:11px;font-weight:700;cursor:pointer">إدارة</button>
-          <button onclick="adminDeleteUser('${u.email}')" title="حذف الحساب نهائياً"
+          ${isSuperAdmin() ? `<button onclick="adminDeleteUser('${u.email}')" title="حذف الحساب نهائياً"
             style="padding:6px 9px;border-radius:8px;border:1px solid rgba(248,113,113,.4);
-                   background:rgba(248,113,113,.1);color:#fca5a5;font-size:11px;font-weight:700;cursor:pointer">🗑️</button>`}
+                   background:rgba(248,113,113,.1);color:#fca5a5;font-size:11px;font-weight:700;cursor:pointer">🗑️</button>` : ''}`}
         </div>
       </div>`;
     }).join('');
+}
+
+/* ══════════ 🛡️ سجل نشاط فريق الإشراف (لكل مشرف: ماذا عدّل وماذا ردّ) ══════════ */
+let _admActivity   = [];
+let _admSupportList = [];
+const _ACT_META = {
+  reply:           { icon:'↩️', label:'رد على الدعم',        grp:'replied' },
+  user_edit:       { icon:'✏️', label:'تعديل مستخدم',        grp:'edited'  },
+  bulk_apply:      { icon:'⚙️', label:'تطبيق جماعي',         grp:'edited'  },
+  payment_confirm: { icon:'✅', label:'تأكيد دفع',           grp:'edited'  },
+  payment_reject:  { icon:'❌', label:'رفض دفع',             grp:'edited'  },
+  payment_reset:   { icon:'⏳', label:'إعادة دفع للمراجعة',  grp:'edited'  },
+  delete_payment:  { icon:'🗑️', label:'حذف عملية دفع',       grp:'deleted' },
+  delete_support:  { icon:'🗑️', label:'حذف رسالة دعم',       grp:'deleted' },
+  delete_user:     { icon:'🗑️', label:'حذف حساب',            grp:'deleted' },
+  hist_sync:       { icon:'📈', label:'مزامنة البيانات التاريخية', grp:'edited' },
+};
+
+/* يسجّل إجراء العضو الحالي في جدول admin_activity (fire-and-forget) */
+async function logAdminAction(action, target, details) {
+  try {
+    if (!sb || !sbUser) return;
+    await sb.from('admin_activity').insert({
+      actor_email: sbUser.email,
+      actor_role : isSuperAdmin() ? 'admin' : 'supervisor',
+      action,
+      target : target != null ? String(target).slice(0, 200) : null,
+      details: details ? String(details).slice(0, 500) : null,
+    });
+  } catch (e) { console.warn('[نشاط الإشراف] تعذّر تسجيل الإجراء:', e); }
+}
+
+/* ══════════ 📈 البيانات التاريخية للأسهم ══════════ */
+let _histSyncing = false;
+
+/* قراءة شموع رمز من القاعدة (يصعد بالتاريخ) — تُرجع null إن لم تكفِ */
+async function histDbLoad(sym, minBars) {
+  try {
+    if (!sb) return null;
+    const { data, error } = await sb.from('historical_prices')
+      .select('d,o,h,l,c,v').eq('symbol', sym)
+      .order('d', { ascending: true });
+    if (error || !data || data.length < (minBars || 25)) return null;
+    return data.map(r => ({ o:+r.o, h:+r.h, l:+r.l, c:+r.c, v:+r.v || 0, d:r.d }));
+  } catch (e) { return null; }
+}
+
+/* جلب 5 سنوات يومي من المصدر (نفس بروكسيات التطبيق) بصيغة صفوف للتخزين */
+async function histFetchYahoo5y(sym) {
+  const ticker = (sym === 'TASI') ? '^TASI.SR' : sym + '.SR';
+  const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=5y';
+  const proxies = [
+    (typeof PRIVATE_PROXY !== 'undefined' ? PRIVATE_PROXY : '') + encodeURIComponent(directUrl),
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl),
+    'https://corsproxy.io/?url=' + encodeURIComponent(directUrl),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(directUrl),
+  ];
+  for (const purl of proxies) {
+    try {
+      const res = await fetch(purl, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const data = JSON.parse(await res.text());
+      const r = data && data.chart && data.chart.result && data.chart.result[0];
+      if (!r || !r.timestamp) continue;
+      const q = r.indicators.quote[0];
+      const out = [];
+      for (let i = 0; i < r.timestamp.length; i++) {
+        if (q.close[i] == null) continue;
+        const d = new Date(r.timestamp[i] * 1000).toISOString().slice(0, 10);
+        out.push({ symbol: sym, d, o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume[i] || 0 });
+      }
+      if (out.length) return out;
+    } catch (e) { /* جرّب البروكسي التالي */ }
+  }
+  return null;
+}
+
+/* زر الأدمن: يجلب لكل رموز السوق المحمّلة (rows) ويخزّنها في القاعدة */
+async function adminSyncHistorical() {
+  if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  if (_histSyncing) return;
+  if (!Array.isArray(rows) || !rows.length) {
+    showToast('⚠️ حمّل بيانات السوق أولاً — افتح «🔮 رادار الانفجارات» ثم عُد'); return;
+  }
+  _histSyncing = true;
+  const list = rows.filter(r => r.sym);
+  const total = list.length; let done = 0, okRows = 0, okSyms = 0, failed = 0, idx = 0;
+  const btn  = document.getElementById('histSyncBtn');
+  const prog = document.getElementById('histSyncProg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ جارٍ الجلب...'; }
+  const upd = () => { if (prog) prog.textContent = `⏳ ${done}/${total} رمز · ${okRows} صف مخزّن${failed ? ` · ${failed} فشل` : ''}`; };
+  upd();
+  async function worker() {
+    while (idx < list.length) {
+      const r = list[idx++];
+      try {
+        const cs = await histFetchYahoo5y(r.sym);
+        if (cs && cs.length) {
+          for (let i = 0; i < cs.length; i += 500) {
+            const chunk = cs.slice(i, i + 500);
+            const { error } = await sb.from('historical_prices').upsert(chunk, { onConflict: 'symbol,d' });
+            if (error) throw error;
+            okRows += chunk.length;
+          }
+          okSyms++;
+        } else failed++;
+      } catch (e) { failed++; console.warn('[hist]', r.sym, e && e.message); }
+      done++; upd();
+    }
+  }
+  const ws = []; for (let i = 0; i < 3; i++) ws.push(worker());
+  await Promise.all(ws);
+  _histSyncing = false;
+  if (btn) { btn.disabled = false; btn.textContent = '📥 جلب/تحديث البيانات التاريخية (5 سنوات)'; }
+  if (prog) prog.textContent = `✅ اكتمل: ${okSyms}/${total} رمز · ${okRows} صف${failed ? ` · ${failed} فشل` : ''}`;
+  logAdminAction('hist_sync', `${okSyms} رمز`, `${okRows} صف مخزّن${failed ? ` · ${failed} فشل` : ''}`);
+  showToast(`✅ خُزّنت البيانات التاريخية: ${okSyms} رمز`);
+  histLoadStats();
+}
+
+/* إحصاء ما هو مخزّن حالياً */
+async function histLoadStats() {
+  const el = document.getElementById('histStatsBox');
+  if (!el || !isSuperAdmin()) return;
+  try {
+    const { count, error } = await sb.from('historical_prices')
+      .select('*', { count: 'exact', head: true });
+    if (error) throw error;
+    el.innerHTML = count ? `📦 مخزّن حالياً: <b style="color:var(--txt)">${count.toLocaleString('en')}</b> صف` : 'لا بيانات مخزّنة بعد — اضغط الجلب.';
+  } catch (e) {
+    el.innerHTML = '⚠️ نفّذ ملف <b>market_historical.sql</b> في Supabase أولاً.';
+  }
+}
+
+async function adminLoadActivity() {
+  const box = document.getElementById('admActivityBox');
+  if (!box || !isSuperAdmin()) return;
+  try {
+    const { data, error } = await sb.from('admin_activity')
+      .select('*').order('created_at', { ascending: false }).limit(500);
+    if (error) throw error;
+    _admActivity = data || [];
+    adminRenderActivity();
+  } catch (e) {
+    _admActivity = [];
+    box.innerHTML = '<div style="padding:10px;line-height:1.9;color:var(--txt-m)">⚠️ نفّذ ملف <b>admin_activity.sql</b> في Supabase أولاً لتفعيل السجل.</div>';
+  }
+}
+
+function adminRenderActivity() {
+  const box = document.getElementById('admActivityBox');
+  if (!box) return;
+  const filter = (document.getElementById('admActFilter') || {}).value || 'supervisor';
+  let list = _admActivity.slice();
+  if (filter === 'supervisor') {
+    const supMails = new Set((_admUsers || [])
+      .filter(u => u.role === 'supervisor' && !ADMIN_EMAILS.includes((u.email || '').toLowerCase()))
+      .map(u => (u.email || '').toLowerCase()));
+    list = list.filter(a => a.actor_role === 'supervisor' || supMails.has((a.actor_email || '').toLowerCase()));
+  }
+  if (!list.length) {
+    box.innerHTML = `<div style="padding:12px;text-align:center;color:var(--txt-m)">لا نشاط ${filter === 'supervisor' ? 'للمشرفين ' : ''}مُسجَّل بعد</div>`;
+    return;
+  }
+  const groups = {};
+  list.forEach(a => { (groups[a.actor_email] = groups[a.actor_email] || []).push(a); });
+  box.innerHTML = Object.keys(groups).map(email => {
+    const items = groups[email];
+    const c = { replied: 0, edited: 0, deleted: 0 };
+    items.forEach(a => { const m = _ACT_META[a.action]; if (m) c[m.grp]++; });
+    const isSup = items[0].actor_role === 'supervisor';
+    return `
+    <div style="border:1px solid var(--bdr);border-radius:12px;padding:11px 12px;margin-bottom:10px;background:var(--surf-alt)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px">
+        <div style="font-size:12px;font-weight:800;color:var(--txt);direction:ltr;text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis">
+          ${email} ${isSup
+            ? '<span style="display:inline-block;background:rgba(139,92,246,.18);color:#c4b5fd;border:1px solid rgba(139,92,246,.4);border-radius:20px;padding:1px 7px;font-size:9px;font-weight:700;direction:rtl">🛡️ مشرف</span>'
+            : '<span style="display:inline-block;background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.4);border-radius:20px;padding:1px 7px;font-size:9px;font-weight:700;direction:rtl">👑 أدمن</span>'}
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;font-size:10px">
+          <span style="background:rgba(34,197,94,.12);color:#86efac;border-radius:20px;padding:2px 8px">✏️ عدّل: ${c.edited}</span>
+          <span style="background:rgba(96,165,250,.12);color:#93c5fd;border-radius:20px;padding:2px 8px">↩️ ردّ: ${c.replied}</span>
+          ${c.deleted ? `<span style="background:rgba(248,113,113,.12);color:#fca5a5;border-radius:20px;padding:2px 8px">🗑️ حذف: ${c.deleted}</span>` : ''}
+        </div>
+      </div>
+      <div style="max-height:230px;overflow-y:auto;border-top:1px dashed var(--bdr);padding-top:6px">
+        ${items.slice(0, 80).map(a => { const m = _ACT_META[a.action] || { icon:'•', label:a.action };
+          return `<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;line-height:1.6">
+            <span>${m.icon} <b style="color:var(--txt)">${m.label}</b></span>${a.target ? ` · <span style="direction:ltr">${String(a.target).replace(/</g,'&lt;')}</span>` : ''}<span style="color:var(--txt-m);font-size:9.5px"> · ${new Date(a.created_at).toLocaleString('ar',{dateStyle:'short',timeStyle:'short'})}</span>${a.details ? `<div style="color:var(--txt-m);font-size:10px;margin-top:1px;word-break:break-word;overflow-wrap:anywhere">${String(a.details).replace(/</g,'&lt;')}</div>` : ''}
+          </div>`; }).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 /* رسالة خطأ ذكية لعمليات الأدمن: تكشف انتهاء الجلسة */
@@ -3726,6 +4782,7 @@ function _admSelectedEmails() {
 }
 
 async function adminBulkApply(allMode) {
+  if (!can('users')) { showToast('⛔ لا تملك صلاحية إدارة المستخدمين'); return; }
   const emails = allMode ? _admAllTargets() : _admSelectedEmails();
   if (emails.length === 0) {
     showToast(allMode ? '⚠️ لا مستخدمين غير مستثنين للتطبيق عليهم' : '⚠️ حدد مستخدماً واحداً على الأقل (المربعات يسار الإيميلات)');
@@ -3763,7 +4820,9 @@ async function adminBulkApply(allMode) {
   const { error } = await sb.from('user_restrictions').upsert(rows);
   if (error) { _admErr(error, 'فشل التطبيق الجماعي'); return; }
   rows.forEach(r => { _admRestr[r.email] = r; });
-  showToast(`✅ طُبّق «${document.getElementById('admBulkPreset').selectedOptions[0].text}» على ${emails.length} مستخدم${allMode ? ' (الكل عدا المستثنين 🛡️)' : ''}`);
+  const _presetTxt = document.getElementById('admBulkPreset').selectedOptions[0].text;
+  logAdminAction('bulk_apply', emails.length + ' مستخدم' + (allMode ? ' (الكل)' : ''), _presetTxt);
+  showToast(`✅ طُبّق «${_presetTxt}» على ${emails.length} مستخدم${allMode ? ' (الكل عدا المستثنين 🛡️)' : ''}`);
   adminLoadUsers();
 }
 
@@ -3779,6 +4838,13 @@ function adminEditUser(email) {
   }
   const r = bulk ? { hidden_tabs: [], blocked: false }
                  : (_admRestr[email] || { hidden_tabs: [], blocked: false });
+  /* 🛡️ ملف المستخدم (لدوره الإشرافي) — للأدمن الرئيسي فقط */
+  const uProf     = bulk ? {} : (_admUsers.find(x => x.email === email) || {});
+  const uIsSup    = uProf.role === 'supervisor';
+  const uPerms    = uProf.perms || {};
+  const isAdmEmail = !bulk && ADMIN_EMAILS.includes((email || '').toLowerCase());
+  const hiSecs = bulk ? [] : (_payJustActivated || []);   // أقسام فُعّلت للتوّ (إطار أخضر)
+  _payJustActivated = [];                                  // استهلاك مرة واحدة
   const old = document.getElementById('adminUserPanel');
   if (old) old.remove();
   const el = document.createElement('div');
@@ -3798,9 +4864,10 @@ function adminEditUser(email) {
       <div style="font-size:11.5px;color:var(--txt-m);direction:ltr;text-align:left;margin-bottom:12px">${bulk ? (_admBulkTargets.slice(0, 6).join('<br>') + (_admBulkTargets.length > 6 ? `<br>… و${_admBulkTargets.length - 6} آخرين` : '')) : email}</div>
 
       <div style="font-size:11.5px;font-weight:700;color:#fbbf24;margin-bottom:4px">الأقسام المتاحة له</div>
-      ${ADMIN_TAB_DEFS.map(t => { const fl = _secFlags(r, t.k); return `
+      ${ADMIN_TAB_DEFS.map(t => { const fl = _secFlags(r, t.k); const hot = hiSecs.includes(t.k); return `
+        <div style="${hot ? 'border:2px solid #22c55e;border-radius:12px;padding:8px 10px;margin-bottom:10px;box-shadow:0 0 10px rgba(34,197,94,.35)' : ''}">
         <label style="${row};cursor:pointer;border-bottom:none">
-          <span>${t.t}</span>
+          <span>${t.t} ${hot ? '<span style="background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.4);border-radius:20px;padding:1px 8px;font-size:9.5px;font-weight:800">✅ فُعّل الآن</span>' : ''}</span>
           <input type="checkbox" id="admU-${t.k}" ${(r.hidden_tabs || []).includes(t.k) ? '' : 'checked'}
                  style="width:18px;height:18px;cursor:pointer">
         </label>
@@ -3824,7 +4891,8 @@ function adminEditUser(email) {
             <option value="lock" ${fl.lockT === 'lock' ? 'selected' : ''}>🔒 مقفلة (مظللة)</option>
           </select>
         </div>
-        ${_admSubBlock(t.k, r)}`; }).join('')}
+        ${_admSubBlock(t.k, r)}
+        </div>`; }).join('')}
 
       <div style="font-size:10px;color:var(--txt-m);margin:6px 0 2px;line-height:1.5">🪟 منع المنبثقات و🌫️ الضبابية تُضبط لكل قسم أعلاه</div>
       ${_admSubBlock('popups', r)}
@@ -3843,12 +4911,61 @@ function adminEditUser(email) {
       <button onclick="adminSaveUser()" style="width:100%;margin-top:16px;padding:12px;border-radius:11px;
         border:none;cursor:pointer;font-weight:800;font-size:13.5px;color:#1a1a1a;
         background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ ${bulk ? `القيود لـ${_admBulkTargets.length} مستخدم` : 'قيود هذا المستخدم'}</button>
-      ${bulk ? '' : `
+      ${(bulk || !isSuperAdmin()) ? '' : `
       <button onclick="adminSetPassword('${email}')" style="width:100%;margin-top:8px;padding:11px;border-radius:11px;
         cursor:pointer;border:1.5px solid rgba(96,165,250,.4);background:rgba(96,165,250,.1);
         color:#93c5fd;font-weight:700;font-size:12.5px">🔑 تعيين كلمة مرور جديدة لهذا المستخدم</button>`}
+
+      ${(bulk || !isSuperAdmin() || isAdmEmail) ? '' : `
+      <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--bdr)">
+        <div style="font-size:12px;font-weight:800;color:#c4b5fd;margin-bottom:8px">🛡️ الصلاحيات الإشرافية</div>
+        <label style="${row};cursor:pointer;border-bottom:none">
+          <span>تعيين هذا المستخدم <b>مشرفاً</b></span>
+          <input type="checkbox" id="admRoleSup" ${uIsSup ? 'checked' : ''}
+            onchange="document.getElementById('admRolePerms').style.display=this.checked?'block':'none'"
+            style="width:18px;height:18px;cursor:pointer">
+        </label>
+        <div id="admRolePerms" style="display:${uIsSup ? 'block' : 'none'};padding:2px 0 0">
+          <div style="font-size:10.5px;color:var(--txt-m);margin:2px 0 4px">يستطيع المشرف الوصول لما تحدده فقط:</div>
+          <label style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:7px 0;cursor:pointer;color:var(--txt)">
+            <span>📨 الرد على طلبات الدعم</span>
+            <input type="checkbox" id="admRolePermSupport" ${uPerms.support !== false ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">
+          </label>
+          <label style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:7px 0;cursor:pointer;color:var(--txt)">
+            <span>👥 إدارة اشتراكات وقيود المستخدمين</span>
+            <input type="checkbox" id="admRolePermUsers" ${uPerms.users !== false ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">
+          </label>
+          <div style="font-size:10px;color:var(--txt-m);line-height:1.6;margin-top:4px">
+            🚫 لا يستطيع المشرف: حذف/إنشاء الحسابات · تعيين كلمات المرور · الإعدادات العامة · تعيين مشرفين آخرين.
+          </div>
+        </div>
+        <button onclick="adminSaveRole('${email}')" style="width:100%;margin-top:10px;padding:11px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:12.5px;color:#fff;
+          background:linear-gradient(135deg,#6d28d9,#8b5cf6)">🛡️ حفظ الصلاحيات الإشرافية</button>
+      </div>`}
     </div>`;
   document.body.appendChild(el);
+}
+
+/* 🛡️ حفظ دور المستخدم الإشرافي (للأدمن الرئيسي فقط) */
+async function adminSaveRole(email) {
+  if (!isSuperAdmin()) { showToast('⛔ تعيين المشرفين للأدمن الرئيسي فقط'); return; }
+  if (ADMIN_EMAILS.includes((email || '').toLowerCase())) { showToast('⛔ هذا الحساب أدمن رئيسي بالفعل'); return; }
+  const isSup = document.getElementById('admRoleSup').checked;
+  const perms = isSup ? {
+    support: document.getElementById('admRolePermSupport').checked,
+    users:   document.getElementById('admRolePermUsers').checked,
+  } : null;
+  if (isSup && !perms.support && !perms.users) { showToast('⚠️ اختر صلاحية واحدة على الأقل للمشرف'); return; }
+  const patch = { role: isSup ? 'supervisor' : 'user', perms };
+  const { error } = await sb.from('profiles').update(patch).eq('email', email);
+  if (error) { _admErr(error, 'فشل حفظ الصلاحيات'); return; }
+  const u = _admUsers.find(x => x.email === email);
+  if (u) { u.role = patch.role; u.perms = patch.perms; }
+  showToast(isSup ? '🛡️ عُيّن مشرفاً: ' + email : '↩️ أُلغيت صلاحية الإشراف: ' + email);
+  const p = document.getElementById('adminUserPanel');
+  if (p) p.remove();
+  adminLoadUsers();
 }
 
 /* 🌫️ تبديل ضبابية قسمٍ داخل نافذة إدارة المستخدم */
@@ -3927,6 +5044,7 @@ function _admAllTargets() {
 
 /* 🛡️ تبديل استثناء مستخدم من «التطبيق على الكل» بضغطة من القائمة */
 async function adminToggleExempt(email) {
+  if (!can('users')) { showToast('⛔ لا تملك صلاحية إدارة المستخدمين'); return; }
   const cur = _admRestr[email] || {};
   const next = !cur.sub_exempt;
   const { error } = await sb.from('user_restrictions')
@@ -3941,6 +5059,7 @@ async function adminToggleExempt(email) {
 }
 
 async function adminSaveUser() {
+  if (!can('users')) { showToast('⛔ لا تملك صلاحية إدارة المستخدمين'); return; }
   const hidden_tabs = ADMIN_TAB_DEFS.map(t => t.k)
     .filter(k => !document.getElementById('admU-' + k).checked);
   const blocked = document.getElementById('admUBlocked').checked;
@@ -3995,6 +5114,16 @@ async function adminSaveUser() {
   const { error } = await sb.from('user_restrictions').upsert(rows);
   if (error) { _admErr(error, 'فشل الحفظ'); return; }
   rows.forEach(r => { _admRestr[r.email] = r; });
+  (function(){
+    const paidSecs = SUB_SECTION_DEFS.filter(d => secIn[d.k] && secIn[d.k].plan === 'paid').map(d => d.t.replace(/^\S+\s/, ''));
+    const bits = [];
+    if (paidSecs.length) bits.push('اشتراك: ' + paidSecs.join('،'));
+    if (blocked) bits.push('⛔ إيقاف'); 
+    if (hidden_tabs.length) bits.push('إخفاء ' + hidden_tabs.length + ' قسم');
+    if (no_popups) bits.push('🪟 منع منبثقات');
+    if (blur_view) bits.push('🌫️ ضبابي');
+    logAdminAction('user_edit', rows.length === 1 ? rows[0].email : (rows.length + ' مستخدم'), bits.join(' · ') || 'تحديث قيود');
+  })();
   showToast(`✅ حُفظت القيود لـ${rows.length} مستخدم — تسري عند فتحهم التطبيق`);
   const p = document.getElementById('adminUserPanel');
   if (p) p.remove();
@@ -4002,14 +5131,18 @@ async function adminSaveUser() {
 }
 
 async function adminSave() {
+  if (!isSuperAdmin()) { showToast('⛔ الإعدادات العامة للأدمن الرئيسي فقط'); return; }
   const tabKeys = ['watchlist', 'monitor', 'returns', 'all', 'analysis'];
-  appSettings = {
+  appSettings = Object.assign({}, appSettings, {
     hiddenTabs:     tabKeys.filter(k => !document.getElementById('admTab-' + k).checked),
     requireLogin:   document.getElementById('admRequireLogin').checked,
     maintenance:    document.getElementById('admMaintenance').checked,
     maintenanceMsg: document.getElementById('admMaintMsg').value.trim(),
     announcement:   document.getElementById('admAnnounce').value.trim(),
-  };
+    /* 🏦 حافظ على الحسابات البنكية وأسعار الخدمات المُدارة بشكل منفصل */
+    banks:          Array.isArray(appSettings.banks) ? appSettings.banks : [],
+    servicePrices:  appSettings.servicePrices || {},
+  });
   const { error } = await sb.from('app_settings')
     .upsert({ id: 1, data: appSettings, updated_at: new Date().toISOString() });
   if (error) { _admErr(error, 'فشل حفظ الإعدادات'); return; }
@@ -6905,6 +8038,32 @@ document.addEventListener('keydown', e => {
   const PRED_DAILY_LIMIT = 10;
   const PRED_CONC = 5;              // عدد الأسهم المُجلبة بالتوازي
   const PRED_CACHE = {};            // sym → شموع OHLCV (سنة/يومي)
+  let _symInd = {};                 // 📊 مؤشرات المدى الطويل المحسوبة مسبقاً (symbol → صف)
+  let _symIndLoaded = false;
+  async function predLoadIndicators(force) {
+    if (_symIndLoaded && !force) return;
+    try {
+      const { data, error } = await sb.from('symbol_indicators')
+        .select('symbol,pos_5y,trend,base_flag,base_score');
+      if (error) throw error;
+      const m = {}; (data || []).forEach(r => { m[r.symbol] = r; });
+      _symInd = m; _symIndLoaded = true;
+    } catch (e) { /* الجدول غير جاهز بعد — نعرض «—» */ }
+  }
+  /* خلية إشارات المدى الطويل (قراءة من الكاش فقط — بلا حساب) */
+  function predLTCell(sym) {
+    const s = _symInd[sym];
+    if (!s) return '<span style="color:var(--txt-m);font-size:10px">—</span>';
+    const tr  = s.trend === 'up' ? '📈' : s.trend === 'down' ? '📉' : '➡️';
+    const trc = s.trend === 'up' ? '#4ade80' : s.trend === 'down' ? '#f87171' : 'var(--txt-m)';
+    const pos = s.pos_5y != null ? Math.round(s.pos_5y) + '%' : '—';
+    const posc = s.pos_5y == null ? 'var(--txt-m)' : (s.pos_5y >= 80 ? '#f87171' : s.pos_5y <= 20 ? '#4ade80' : 'var(--txt)');
+    const base = s.base_flag ? ' <span title="قاعدة تراكم — قوة ' + (s.base_score||0) + '" style="color:#fbbf24">🧱</span>' : '';
+    return '<div style="font-size:10.5px;white-space:nowrap">'
+      + '<span title="الموقع ضمن نطاق 5 سنوات" style="color:' + posc + '">📍' + pos + '</span> '
+      + '<span title="الاتجاه العام طويل المدى" style="color:' + trc + '">' + tr + '</span>'
+      + base + '</div>';
+  }
   let   PRED_RESULTS = [];
   let   PRED_FILTER  = 'all';
   let   PRED_SEARCH  = '';
@@ -6979,6 +8138,11 @@ document.addEventListener('keydown', e => {
   // جلب شموع سنة/يومي OHLCV من ياهو عبر نفس بروكسيات التطبيق
   async function predFetchCandles(sym) {
     if (PRED_CACHE[sym]) return PRED_CACHE[sym];
+    /* 📈 جرّب القاعدة أولاً (خزّنها الأدمن) قبل الجلب من المصدر الخارجي */
+    try {
+      const dbc = await histDbLoad(sym, 25);
+      if (dbc && dbc.length >= 25) { const c = dbc.slice(-260); PRED_CACHE[sym] = c; return c; }
+    } catch (e) {}
     const ticker = (sym === 'TASI') ? '^TASI.SR' : sym + '.SR';
     const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1y';
     const proxies = [
@@ -7013,7 +8177,7 @@ document.addEventListener('keydown', e => {
   function predRenderLocked() {
     const btn = document.getElementById('predScanBtn');
     if (btn) { btn.disabled = true; btn.textContent = '🔒 محتوى للمشتركين'; }
-    ['all', 'high', 'imminent', 'up', 'down'].forEach(f => {
+    ['all', 'high', 'imminent', 'up', 'down', 'base'].forEach(f => {
       const el = document.getElementById('predCount-' + f); if (el) el.textContent = '(0)';
     });
     const wrap = document.getElementById('predResults'); if (!wrap) return;
@@ -7054,6 +8218,7 @@ document.addEventListener('keydown', e => {
       if (typeof showToast === 'function') showToast('⚠️ حمّل بيانات السوق أولاً'); return;
     }
     PRED_SCANNING = true; PRED_RESULTS = [];
+    await predLoadIndicators();
     const list = rows.filter(r => r.sym);
     const total = list.length; let done = 0, ok = 0, idx = 0;
     const btn = document.getElementById('predScanBtn');
@@ -7099,6 +8264,7 @@ document.addEventListener('keydown', e => {
     if (f === 'down') return PRED_RESULTS.filter(r => r.direction === 'down').length;
     if (f === 'imminent') return PRED_RESULTS.filter(r => r.timing.level >= 2).length;
     if (f === 'high') return PRED_RESULTS.filter(r => r.probability >= 70).length;
+    if (f === 'base') return PRED_RESULTS.filter(r => _symInd[r.sym] && _symInd[r.sym].base_flag).length;
     return 0;
   }
 
@@ -7108,7 +8274,7 @@ document.addEventListener('keydown', e => {
     if (_sb && !PRED_SCANNING && String(_sb.textContent).indexOf('🔒') >= 0) {
       _sb.disabled = false; _sb.textContent = '🔮 مسح الانفجارات';
     }
-    ['all', 'high', 'imminent', 'up', 'down'].forEach(f => {
+    ['all', 'high', 'imminent', 'up', 'down', 'base'].forEach(f => {
       const el = document.getElementById('predCount-' + f);
       if (el) el.textContent = '(' + predCount(f) + ')';
     });
@@ -7128,6 +8294,7 @@ document.addEventListener('keydown', e => {
     else if (PRED_FILTER === 'down') list = list.filter(r => r.direction === 'down');
     else if (PRED_FILTER === 'imminent') list = list.filter(r => r.timing.level >= 2);
     else if (PRED_FILTER === 'high') list = list.filter(r => r.probability >= 70);
+    else if (PRED_FILTER === 'base') list = list.filter(r => _symInd[r.sym] && _symInd[r.sym].base_flag);
 
     const q = (PRED_SEARCH || '').trim();
     if (q) {
@@ -7161,6 +8328,7 @@ document.addEventListener('keydown', e => {
           '<span style="font-weight:800;font-size:12px;color:' + probColor(r.probability) + '">' + r.probability + '%</span></div></td>' +
         '<td style="padding:9px 6px;text-align:center;font-size:11.5px">' + Math.round(r.squeezeStrength * 100) + '%' + (r.ttm ? ' 🔒' : '') + '</td>' +
         '<td style="padding:9px 6px;text-align:center">' + dirChip(r.direction) + '</td>' +
+        '<td style="padding:9px 6px;text-align:center">' + predLTCell(r.sym) + '</td>' +
         '<td style="padding:9px 6px;text-align:center;font-weight:700;font-size:11.5px">' + tgt + '</td>' +
         '<td style="padding:9px 6px;text-align:center;font-size:11px;white-space:nowrap">' + timeBadge + r.timing.text + '</td>' +
         '<td style="padding:9px 6px;text-align:center;white-space:nowrap">' +
@@ -7176,6 +8344,7 @@ document.addEventListener('keydown', e => {
       '<th style="padding:8px 6px">#</th><th style="padding:8px 6px;text-align:right">السهم</th>' +
       '<th style="padding:8px 6px">السعر</th><th style="padding:8px 6px">احتمال الانفجار</th>' +
       '<th style="padding:8px 6px">الضغط</th><th style="padding:8px 6px">الاتجاه</th>' +
+      '<th style="padding:8px 6px">المدى (5س)</th>' +
       '<th style="padding:8px 6px">الهدف</th><th style="padding:8px 6px">التوقيت</th>' +
       '<th style="padding:8px 6px">إضافة</th>' +
       '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
@@ -7197,6 +8366,7 @@ document.addEventListener('keydown', e => {
     if (predLocked()) { predRenderLocked(); return; }
     if (!PRED_RESULTS.length) predLoadCache();   // استرجاع النتائج المحفوظة
     predRender();
+    predLoadIndicators().then(() => predRender());   // 📊 حمّل إشارات المدى الطويل ثم أعد الرسم
     predUpdateStamp();
     // تشغيل تلقائي مرة واحدة بعد إغلاق السوق إن كانت البيانات قديمة
     if (!PRED_AUTORAN && !predIsFresh() && !predIsMarketOpen() && Array.isArray(rows) && rows.length) {
@@ -7247,6 +8417,9 @@ document.addEventListener('keydown', e => {
         cell('ADX', res.adx != null ? res.adx : '— (تقديري)') +
         cell('اتجاه OBV', res.obvSlope > 0.05 ? 'تجميع ⬆️' : res.obvSlope < -0.05 ? 'توزيع ⬇️' : 'محايد') +
         cell('الحجم', res.volExpansion ? 'انفجار 🔥' : res.volContraction ? 'انكماش 🤫' : 'عادي') +
+        cell('الموقع ضمن 5 سنوات', (_symInd[res.sym] && _symInd[res.sym].pos_5y != null) ? Math.round(_symInd[res.sym].pos_5y) + '%' : '—') +
+        cell('الاتجاه العام (5س)', _symInd[res.sym] ? (_symInd[res.sym].trend === 'up' ? '📈 صاعد' : _symInd[res.sym].trend === 'down' ? '📉 هابط' : '➡️ عرضي') : '—') +
+        cell('قاعدة تراكم', (_symInd[res.sym] && _symInd[res.sym].base_flag) ? ('🧱 نعم · ' + (_symInd[res.sym].base_score || 0)) : '—') +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-top:14px">' +
         '<button onclick="predAddWatch(\'' + res.sym + '\')" style="flex:1;background:var(--surf-alt);border:1px solid var(--bdr);color:var(--txt);border-radius:10px;padding:11px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">👁️ إضافة للمراقبة</button>' +
@@ -9629,8 +10802,22 @@ function histRenderCandles(dataRows, tab, isSim) {
     },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: 'rgba(255,255,255,.12)' },
-    timeScale: { borderColor: 'rgba(255,255,255,.12)', rightOffset: 3 },
-    localization: { locale: 'ar' },
+    timeScale: {
+      borderColor: 'rgba(255,255,255,.12)', rightOffset: 3,
+      tickMarkFormatter: (t, tickType) => {
+        const d = _histBDtoDate(t); if (!d) return '';
+        if (tickType === 0) return String(d.getFullYear());
+        if (tickType === 1) return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month:'short' });
+        return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day:'numeric', month:'short' });
+      },
+    },
+    localization: {
+      locale: 'ar',
+      timeFormatter: (t) => {
+        const d = _histBDtoDate(t); if (!d) return '';
+        return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day:'numeric', month:'long', year:'numeric' });
+      },
+    },
   });
   histCandleInstance = chart;
 
@@ -9726,13 +10913,22 @@ async function histCandleUpgrade(tab) {
   }
 }
 
-/* ── تنسيق التاريخ ── */
+/* ── تحويل وقت الشارت (BusinessDay/طابع زمني/نص) إلى Date ── */
+function _histBDtoDate(t) {
+  if (t == null) return null;
+  if (typeof t === 'number') return new Date(t * 1000);
+  if (typeof t === 'object' && t.year) return new Date(Date.UTC(t.year, (t.month || 1) - 1, t.day || 1));
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/* ── تنسيق التاريخ (ميلادي واضح بأرقام لاتينية) ── */
 function histFmtDate(raw) {
   if (!raw) return '—';
   try {
     const d = new Date(raw);
     if (!isNaN(d.getTime()))
-      return d.toLocaleDateString('ar-SA', { day:'numeric', month:'short', year:'2-digit' });
+      return d.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day:'numeric', month:'short', year:'numeric' });
   } catch {}
   return raw;
 }
@@ -9884,18 +11080,22 @@ function showSupportNotice() {
       <div style="font-size:17px;font-weight:800;margin-bottom:8px">هذه الميزة موقوفة لحسابك</div>
       <div style="font-size:13px;color:var(--txt-m);line-height:1.9;margin-bottom:18px">
         عرض تفاصيل وتحليل الأسهم غير متاح لحسابك حالياً<br>
-        للاستفسار أو طلب التفعيل تواصل مع الدعم
+        جدّد اشتراكك للوصول الكامل، أو تواصل مع الدعم
       </div>
+      <button onclick="document.getElementById('supportNotice').remove();openPayModal('account')"
+        style="width:100%;padding:13px;border-radius:11px;border:none;cursor:pointer;
+               font-weight:800;font-size:14.5px;color:#fff;margin-bottom:10px;
+               background:linear-gradient(135deg,#166534 0%,#22c55e 100%)">💳 تجديد الاشتراك</button>
       <button onclick="document.getElementById('supportNotice').remove();showSupportForm()"
         style="width:100%;padding:12px;border-radius:11px;border:none;cursor:pointer;
                font-weight:800;font-size:14px;color:#fff;
-               background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%)">حسناً — تواصل مع الدعم</button>
+               background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%)">تواصل مع الدعم</button>
     </div>`;
   document.body.appendChild(d);
 }
 
 /* ── نموذج طلب الدعم: يصل الأدمن في لوحته ── */
-function showSupportForm() {
+function showSupportForm(prefill) {
   if (document.getElementById('supportForm')) return;
   const d = document.createElement('div');
   d.id = 'supportForm';
@@ -9919,13 +11119,14 @@ function showSupportForm() {
         <option value="تفعيل ميزة">🔓 طلب تفعيل ميزة</option>
         <option value="استفسار">❓ استفسار</option>
         <option value="مشكلة تقنية">🛠️ مشكلة تقنية</option>
+        <option value="💳 دفع/تجديد اشتراك">💳 دفع/تجديد اشتراك</option>
         <option value="أخرى">📝 أخرى</option>
       </select>
       <div style="font-size:11px;color:var(--txt-m);margin-bottom:4px">
-        الموضوع <span id="supCount" style="color:var(--txt-m)">(0/300)</span>
+        الموضوع <span id="supCount" style="color:var(--txt-m)">(0/800)</span>
       </div>
-      <textarea id="supSubject" maxlength="300" rows="4" placeholder="اكتب طلبك باختصار..."
-        oninput="document.getElementById('supCount').textContent = '(' + this.value.length + '/300)'"
+      <textarea id="supSubject" maxlength="800" rows="4" placeholder="اكتب طلبك باختصار..."
+        oninput="document.getElementById('supCount').textContent = '(' + this.value.length + '/800)'"
         style="${inp};resize:none"></textarea>
       <div style="display:flex;gap:8px">
         <button onclick="supportSend()" style="flex:1;padding:12px;border-radius:11px;border:none;cursor:pointer;
@@ -9937,6 +11138,21 @@ function showSupportForm() {
       </div>
     </div>`;
   document.body.appendChild(d);
+  /* 💳 تعبئة مسبقة (تأتي من صفحة الدفع مع الخدمات المطلوبة) */
+  if (prefill) {
+    const tSel = document.getElementById('supType');
+    if (prefill.type && tSel) {
+      let opt = [...tSel.options].find(o => o.value === prefill.type);
+      if (!opt) { opt = new Option(prefill.type, prefill.type); tSel.add(opt); }
+      tSel.value = prefill.type;
+    }
+    const txt = document.getElementById('supSubject');
+    if (prefill.text && txt) {
+      txt.value = String(prefill.text).slice(0, 800);
+      const c = document.getElementById('supCount');
+      if (c) c.textContent = '(' + txt.value.length + '/800)';
+    }
+  }
 }
 
 async function supportSend() {
@@ -9969,6 +11185,10 @@ async function supportSend() {
   const f = document.getElementById('supportForm');
   if (f) f.remove();
   showToast('✅ وصل طلبك للدعم — سيتم الرد عبر بريدك');
+  /* 💳 عند طلب «تفعيل ميزة»: افتح صفحة الدفع مباشرة ليجدّد المستخدم اشتراكه */
+  if (reqType === 'تفعيل ميزة' && sbUser && typeof openPayModal === 'function') {
+    setTimeout(() => openPayModal('account'), 250);
+  }
 }
 
 /* إرسال FormSubmit عبر نموذج مخفي داخل iframe (يتجاوز CORS) */
