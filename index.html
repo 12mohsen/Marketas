@@ -1661,7 +1661,7 @@ canvas#mdChart{display:block;width:100% !important}
 </div>
 
 <!-- ══════════ نافذة الحساب (Supabase Auth) ══════════ -->
-<div id="authOverlay" onclick="if(event.target===this)authCloseModal()"
+<div id="authOverlay" onclick="if(event.target===this && !authRecovery)authCloseModal()"
   style="display:none;position:fixed;inset:0;z-index:990;background:rgba(0,0,0,.75);
          align-items:center;justify-content:center;padding:20px">
   <div style="background:var(--surf);border:1px solid var(--bdr-modal);border-radius:18px;
@@ -2085,8 +2085,8 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
 /* ── وضع استعادة كلمة المرور: بعد فتح رابط البريد ── */
 let authRecovery = false;
 function authStartRecovery() {
-  authRecovery = true;
   authOpenModal();
+  authRecovery = true;   /* بعد authOpenModal لأنها تصفّر الوضع — نضبط الاستعادة هنا */
   document.getElementById('authTitle').textContent = 'كلمة مرور جديدة';
   document.getElementById('authEmail').style.display = 'none';
   document.getElementById('authPass2').style.display = 'block';
@@ -2095,7 +2095,7 @@ function authStartRecovery() {
   document.getElementById('authLoggedBox').style.display = 'none';
   document.getElementById('authFormBox').style.display = 'block';
   document.getElementById('authSubmitBtn').textContent = '💾 حفظ كلمة المرور الجديدة';
-  authShowMsg('اكتب كلمة المرور الجديدة مرتين ثم احفظ', 'warn');
+  authShowMsg('🔒 لدخول التطبيق يجب تعيين كلمة مرور جديدة: اكتبها مرتين ثم احفظ. (زر الإغلاق ✕ يُلغي ويسجّل خروجك)', 'warn');
 }
 
 async function authForgotPassword() {
@@ -2273,6 +2273,17 @@ function authOpenModal() {
   }
 }
 function authCloseModal() {
+  /* 🔒 أثناء استعادة كلمة المرور: الإغلاق = إلغاء وتسجيل خروج،
+     حتى لا يبقى المستخدم داخلاً دون تعيين كلمة مرور جديدة */
+  if (authRecovery) {
+    authRecovery = false;
+    try { if (sb) sb.auth.signOut(); } catch (e) {}
+    document.getElementById('authOverlay').style.display = 'none';
+    authPanel = 'auth';
+    if (typeof showToast === 'function')
+      showToast('↩️ أُلغيت الاستعادة وسُجّل خروجك — سجّل الدخول بكلمتك الحالية أو اطلب الرابط من جديد');
+    return;
+  }
   document.getElementById('authOverlay').style.display = 'none';
   authPanel = 'auth';
 }
