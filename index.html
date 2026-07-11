@@ -2118,6 +2118,13 @@ function authUpdateUI() {
   const loggedBox = document.getElementById('authLoggedBox');
   const formBox   = document.getElementById('authFormBox');
   if (!lbl) return;
+  /* 🔒 أثناء استعادة كلمة المرور: أبقِ نموذج الكلمة الجديدة ظاهراً دائماً،
+     ولا تُظهر واجهة «مسجّل الدخول» ولو كانت جلسة الاستعادة مفعّلة */
+  if (authRecovery) {
+    if (loggedBox) loggedBox.style.display = 'none';
+    if (formBox)   formBox.style.display   = 'block';
+    return;
+  }
   if (sbUser) {
     lbl.textContent = authDisplayName();
     if (loggedBox) {
