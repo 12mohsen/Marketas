@@ -1938,7 +1938,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-12-v85 — 🛡️ مؤشّر حالة حماية الوقت في لوحة الأدمن + منع التحايل بوقت الخادم', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-13-v90 — 🕯️ رسم الشموع من قاعدة البيانات لكل الأقسام + تعديل نص المصدر', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -2462,6 +2462,8 @@ async function authSignOut() {
 ═════════════════════════════════════ */
 /* إيميلات الأدمن (بأحرف صغيرة) — الأول رئيسي والثاني احتياطي */
 const ADMIN_EMAILS = ['abd1234ify@gmail.com', 'market13s@hotmail.com'];
+/* 📌 إيميلات تُثبَّت في مقدّمة قائمة المستخدمين (بالترتيب). عدّلها كما تشاء. */
+const PRIORITY_EMAILS = ['abd1234ify@gmail.com','abd12345ify@gmail.com','market13s@hotmail.com','abdmohsen94@gmail.com','almkhzomi1@gmail.com'];
 /* بريد استقبال طلبات الدعم (FormSubmit — يجب أن يكون مفعّلاً لديهم) */
 const SUPPORT_EMAIL = 'market13S@hotmail.com';
 let appSettings = {};
@@ -2632,11 +2634,11 @@ function _showMsgNotice(opts) {
       <div style="font-size:48px;margin-bottom:10px">📨</div>
       <div style="font-size:17px;font-weight:800;margin-bottom:6px">${opts.title}</div>
       <div style="font-size:13px;color:var(--txt-m);line-height:1.9;margin-bottom:16px">${opts.sub}</div>
-      <label style="display:flex;align-items:center;justify-content:center;gap:7px;
+      ${opts.offKey ? `<label style="display:flex;align-items:center;justify-content:center;gap:7px;
                     font-size:11.5px;color:var(--txt-m);margin-bottom:16px;cursor:pointer">
         <input type="checkbox" id="msgNoticeOff" style="width:15px;height:15px;cursor:pointer">
         عدم إظهار هذا التنبيه مجدداً
-      </label>
+      </label>` : ''}
       <div style="display:flex;gap:8px">
         <button id="msgNoticeOpen" style="flex:1.3;padding:12px;border-radius:12px;border:none;cursor:pointer;
           font-weight:800;font-size:13.5px;color:#fff;
@@ -2649,8 +2651,8 @@ function _showMsgNotice(opts) {
   document.body.appendChild(d);
   const applyOff = () => {
     try {
-      if (document.getElementById('msgNoticeOff').checked)
-        localStorage.setItem(opts.offKey, '1');
+      const cb = document.getElementById('msgNoticeOff');
+      if (opts.offKey && cb && cb.checked) localStorage.setItem(opts.offKey, '1');
     } catch (e) {}
   };
   document.getElementById('msgNoticeOpen').onclick = () => { applyOff(); d.remove(); opts.onOpen(); };
@@ -2676,6 +2678,33 @@ async function checkAdminSupport() {
       onOpen: authOpenAdmin,
       offKey: 'tp_admin_popup_off',
     });
+  } catch (e) {}
+}
+
+/* 🎉 تنبيه الأدمن عند تسجيل مستخدم جديد */
+async function checkNewUsers() {
+  if (!sb || !isAdmin()) return;
+  try {
+    const { data } = await sb.from('profiles')
+      .select('email,created_at')
+      .order('created_at', { ascending: false }).limit(50);
+    const list = (data || []).filter(u => u.created_at);
+    if (!list.length) return;
+    const newest = list[0].created_at;
+    let seen = null;
+    try { seen = localStorage.getItem('tp_admin_newuser_seen'); } catch (e) {}
+    if (!seen) { try { localStorage.setItem('tp_admin_newuser_seen', newest); } catch (e) {} return; }
+    const fresh = list.filter(u => new Date(u.created_at) > new Date(seen));
+    if (!fresh.length) return;
+    try { localStorage.setItem('tp_admin_newuser_seen', newest); } catch (e) {}
+    const emails = fresh.slice(0, 3).map(u => u.email).join('، ');
+    _showMsgNotice({
+      title: '🎉 مستخدم جديد سجّل!',
+      sub: `انضمّ <strong style="color:#4ade80">${fresh.length}</strong> ${fresh.length === 1 ? 'مستخدم جديد' : 'مستخدمين جدد'}${emails ? `:<br><span style="direction:ltr;font-size:11px;color:var(--txt)">${emails}${fresh.length > 3 ? ' …' : ''}</span>` : ''}`,
+      btnLabel: '👥 عرض المستخدمين',
+      onOpen: authOpenAdmin,
+    });
+    if (typeof showToast === 'function') showToast('🎉 مستخدم جديد سجّل: ' + (fresh[0].email || ''));
   } catch (e) {}
 }
 
@@ -2900,6 +2929,8 @@ function _startSubWatch() {
   if (_subWatchTimer) return;
   /* كل 30 ثانية: أعد جلب قيود المستخدم من القاعدة (لتصل تغييرات الأدمن فوراً) ثم طبّقها */
   _subWatchTimer = setInterval(() => { refreshUserRestrictions(); }, 30 * 1000);
+  /* 🎉 فحص المسجّلين الجدد كل دقيقة (للأدمن) */
+  setInterval(() => { if (typeof isAdmin === 'function' && isAdmin()) checkNewUsers(); }, 25 * 1000);
   /* وعند عودة المستخدم للتبويب: أعد الجلب مباشرة */
   if (!_subVisBound) {
     _subVisBound = true;
@@ -2927,6 +2958,7 @@ async function syncProfileAndRestrictions() {
   cloudLoadUserData();
   checkUserReplies();
   checkAdminSupport();
+  checkNewUsers();
   _startPresenceHeartbeat();
   _startSubWatch();
   /* سجّل ملف المستخدم (ليظهر في قائمة الأدمن) */
@@ -4421,6 +4453,8 @@ async function adminLoadUsers() {
     ]);
     if (e1) throw e1;
     _admUsers = users || [];
+    /* علّم المسجّلين الحاليين كمقروءين حتى لا يتكرّر تنبيه من رآهم الأدمن */
+    try { const _nw = _admUsers.map(u => u.created_at).filter(Boolean).sort().pop(); if (_nw) localStorage.setItem('tp_admin_newuser_seen', _nw); } catch (e) {}
     _admRestr = {};
     (restr || []).forEach(r => { _admRestr[r.email] = r; });
     /* العدّاد: إجمالي المسجلين + كم منهم داخل التطبيق الآن */
@@ -4456,6 +4490,26 @@ function _lastSeenText(lastSeen) {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `آخر ظهور قبل ${hrs} ساعة`;
   return `آخر ظهور قبل ${Math.floor(hrs / 24)} يوم`;
+}
+
+/* 📅 عمر الحساب منذ التسجيل (مثال: منذ 1 سنة و1 يوم) */
+function _accountAge(createdAt) {
+  if (!createdAt) return '';
+  const d = new Date(createdAt);
+  if (isNaN(d.getTime())) return '';
+  let days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days < 0) days = 0;
+  if (days === 0) return 'سجّل اليوم';
+  if (days === 1) return 'منذ يوم';
+  if (days < 30) return 'منذ ' + days + ' يوم';
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  const rdays = (days % 365) % 30;
+  const p = [];
+  if (years)  p.push(years  + ' سنة');
+  if (months) p.push(months + ' شهر');
+  if (rdays)  p.push(rdays  + ' يوم');
+  return 'منذ ' + p.join(' و');
 }
 
 /* ── 📋 نسخ الإيميل ── */
@@ -4564,7 +4618,16 @@ function adminRenderUsers(query) {
     box.innerHTML = `<div style="padding:10px;text-align:center">لا نتائج لـ«${q}»</div>`;
     return;
   }
-  box.innerHTML = list.map(u => {
+  const _prioIdx = u => {
+    const e = (u.email || '').toLowerCase();
+    const i = PRIORITY_EMAILS.indexOf(e);
+    if (i !== -1) return i;
+    if (ADMIN_EMAILS.includes(e)) return 100;
+    if (u.role === 'supervisor') return 200;
+    return 9999;
+  };
+  const sorted = list.slice().sort((a, b) => _prioIdx(a) - _prioIdx(b));
+  box.innerHTML = sorted.map(u => {
       const r = _admRestr[u.email] || {};
       const tabName = k => {
         const d = ADMIN_TAB_DEFS.find(t => t.k === k);
@@ -4609,6 +4672,7 @@ function adminRenderUsers(query) {
                     ${_isOnline(u.last_seen) ? 'box-shadow:0 0 5px #22c55e;' : ''}margin-left:4px"></span>${u.email}${isMe ? ' 👑' : ''}${(u.role === 'supervisor' && !ADMIN_EMAILS.includes((u.email || '').toLowerCase())) ? ' <span style="display:inline-block;background:rgba(139,92,246,.18);color:#c4b5fd;border:1px solid rgba(139,92,246,.4);border-radius:20px;padding:1px 7px;font-size:9px;font-weight:700;direction:rtl">🛡️ مشرف</span>' : ''}${expiredBadge}</div>
             <div style="font-size:10px;color:${r.blocked ? '#f87171' : (subExpired ? '#fca5a5' : 'var(--txt-m)')}">${status}</div>
             <div style="font-size:9.5px;color:${_isOnline(u.last_seen) ? '#4ade80' : 'var(--txt-m)'}">${_lastSeenText(u.last_seen)}</div>
+            ${u.created_at ? `<div style="font-size:9px;color:var(--txt-m)">📅 سجّل: ${new Date(u.created_at).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { year:'numeric', month:'short', day:'numeric' })} · ${_accountAge(u.created_at)}</div>` : ''}
           </div>
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
@@ -10889,8 +10953,7 @@ function histRender(dataRows, tab, isSim = false, isYahoo = false) {
     ">
       <span>📊</span>
       <span>
-        <strong>بيانات حقيقية من Yahoo Finance</strong> — تم جلب البيانات التاريخية
-        من Yahoo Finance تلقائياً.
+        <strong>بيانات حقيقية</strong> — تم جلب البيانات التاريخية.
       </span>
     </div>` : '';
 
@@ -10984,6 +11047,20 @@ function histRender(dataRows, tab, isSim = false, isYahoo = false) {
 ══════════════════════════════════════ */
 let histCandleInstance = null;
 let histCandleUpgrading = false;
+let _histDbTried = new Set();   // رموز جرّبنا جلب شموعها من القاعدة
+
+/* 🕯️ جلب شموع OHLC كاملة من جدول historical_prices عند غياب OHLC (بيانات Yahoo إغلاق فقط) */
+async function histUpgradeFromDB(sym, tab) {
+  if (!sb || !sym) return;
+  try {
+    const { data, error } = await sb.from('historical_prices')
+      .select('d,o,h,l,c,v').eq('symbol', sym).order('d', { ascending: true });
+    if (error || !data || data.length < 2) return;
+    /* صيغة الصف المتوقّعة: [sym, date, close, vol, _, _, open, high, low] */
+    histDailyRawCache[sym] = data.map(r => [sym, r.d, +r.c, +r.v || 0, null, null, +r.o, +r.h, +r.l]);
+    if (histCurrentSym === sym) histRenderCandles(null, tab, false);
+  } catch (e) { /* تجاهل */ }
+}
 
 function histDestroyCandles() {
   if (histCandleInstance) {
@@ -11065,6 +11142,11 @@ function histRenderCandles(dataRows, tab, isSim) {
   if (isSim || typeof LightweightCharts === 'undefined') { box.style.display = 'none'; return; }
 
   const built = histCandleBuild(dataRows, tab);
+  /* 🕯️ لا توجد شموع (بيانات بلا OHLC) → اجلب OHLC كاملاً من القاعدة مرة واحدة وأعد الرسم */
+  if ((!built || built.mode !== 'candles') && histCurrentSym && !_histDbTried.has(histCurrentSym)) {
+    _histDbTried.add(histCurrentSym);
+    histUpgradeFromDB(histCurrentSym, tab);
+  }
   if (!built) { box.style.display = 'none'; return; }
   box.style.display = 'block';
 
