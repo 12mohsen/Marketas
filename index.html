@@ -1938,7 +1938,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-13-v90 — 🕯️ رسم الشموع من قاعدة البيانات لكل الأقسام + تعديل نص المصدر', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-13-v91 — 🕒 عرض آخر تحديث للبيانات التاريخية + شموع القاعدة', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -4815,7 +4815,17 @@ async function adminSyncHistorical() {
   histLoadStats();
 }
 
-/* إحصاء ما هو مخزّن حالياً */
+/* تنسيق وقت آخر تحديث بتوقيت الرياض: 2026/07/15 · 12:13 ص */
+function _histFmt(iso) {
+  const d = new Date(iso);
+  const dateS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d).replace(/-/g, '/');
+  const tp = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(d);
+  let hh = '', mm = '', ap = '';
+  for (const p of tp) { if (p.type === 'hour') hh = p.value; if (p.type === 'minute') mm = p.value; if (p.type === 'dayPeriod') ap = p.value; }
+  return dateS + ' · ' + hh + ':' + mm + ' ' + (/pm|م/i.test(ap) ? 'م' : 'ص');
+}
+
+/* إحصاء ما هو مخزّن حالياً + آخر تحديث */
 async function histLoadStats() {
   const el = document.getElementById('histStatsBox');
   if (!el || !isSuperAdmin()) return;
@@ -4823,7 +4833,29 @@ async function histLoadStats() {
     const { count, error } = await sb.from('historical_prices')
       .select('*', { count: 'exact', head: true });
     if (error) throw error;
-    el.innerHTML = count ? `📦 مخزّن حالياً: <b style="color:var(--txt)">${count.toLocaleString('en')}</b> صف` : 'لا بيانات مخزّنة بعد — اضغط الجلب.';
+    if (!count) { el.innerHTML = 'لا بيانات مخزّنة بعد — اضغط الجلب.'; return; }
+    let extra = '';
+    try {
+      const [ru, rd] = await Promise.all([
+        sb.from('historical_prices').select('updated_at').order('updated_at', { ascending: false }).limit(1),
+        sb.from('historical_prices').select('d').order('d', { ascending: false }).limit(1),
+      ]);
+      const upd = ru.data && ru.data[0] && ru.data[0].updated_at;
+      const lastD = rd.data && rd.data[0] && rd.data[0].d;
+      if (upd) {
+        let fresh = true;
+        if (lastD) {
+          const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date());
+          const diff = Math.round((Date.parse(today) - Date.parse(lastD)) / 86400000);
+          fresh = diff <= 4;
+        }
+        const badge = fresh
+          ? '<span style="color:#4ade80;font-weight:700">· محدّث ✓</span>'
+          : '<span style="color:#fbbf24;font-weight:700">· متأخّر ⚠️</span>';
+        extra = `<div style="margin-top:5px;font-size:10.5px;color:var(--txt-m)">🕒 آخر تحديث: ${_histFmt(upd)} ${badge}</div>`;
+      }
+    } catch (_) {}
+    el.innerHTML = `📦 مخزّن حالياً: <b style="color:var(--txt)">${count.toLocaleString('en')}</b> صف${extra}`;
   } catch (e) {
     el.innerHTML = '⚠️ نفّذ ملف <b>market_historical.sql</b> في Supabase أولاً.';
   }
