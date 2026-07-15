@@ -4221,6 +4221,36 @@ async function adminSaveServicePrices() {
   showToast('✅ حُفظت أسعار الخدمات — تظهر للمستخدمين في صفحة الدفع');
 }
 
+/* ✉️ رد سريع على الزائر عبر Outlook — يفتح شاشة إنشاء الرسالة مباشرة والبريد معبّأ،
+   فتضغط «رد» → تكتب ردّك → أرسِل، بلا نسخ/لصق أو كتابة الإيميل.
+   • الجوال: يفتح تطبيق Outlook مباشرة (ms-outlook://compose)، وإن لم يكن مثبّتاً يفتح Outlook على الويب.
+   • الكمبيوتر: يفتح Outlook على الويب على شاشة الإنشاء. */
+function adminReplyEmail(id) {
+  const r = (_admSupportList || []).find(x => x.id === id) || {};
+  if (!r.email) { if (typeof showToast === 'function') showToast('⚠️ لا يوجد بريد لهذا الطلب'); return; }
+  const subject = 'رد على طلبك — تداول بلس (' + (r.req_type || '') + ')';
+  const body    = 'مرحباً،\n\nرداً على طلبك:\n«' + String(r.subject || '').slice(0, 120) + '»\n\n';
+  const q = 'to=' + encodeURIComponent(r.email) +
+            '&subject=' + encodeURIComponent(subject) +
+            '&body='    + encodeURIComponent(body);
+  const webUrl = 'https://outlook.live.com/mail/0/deeplink/compose?' + q;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  if (isMobile) {
+    /* افتح تطبيق Outlook على شاشة الإنشاء مباشرة؛ إن لم يُفتح خلال 1.2ث → افتح نسخة الويب */
+    let switched = false;
+    const onHide = () => { switched = true; };
+    document.addEventListener('visibilitychange', onHide, { once: true });
+    window.addEventListener('pagehide', onHide, { once: true });
+    setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide);
+      if (!switched) window.open(webUrl, '_blank');
+    }, 1200);
+    window.location.href = 'ms-outlook://compose?' + q;
+  } else {
+    window.open(webUrl, '_blank', 'noopener');
+  }
+}
+
 /* ── صندوق طلبات الدعم ── */
 async function adminLoadSupport() {
   const box = document.getElementById('admSupportBox');
@@ -4253,12 +4283,10 @@ async function adminLoadSupport() {
         ? `<button onclick="adminToggleReply(${r.id})"
              style="padding:5px 10px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
                     background:rgba(96,165,250,.1);color:#93c5fd;font-size:10.5px;font-weight:700;cursor:pointer">↩️ رد</button>`
-        : `<a href="https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(r.email)}&subject=${encodeURIComponent('رد على طلبك — تداول بلس (' + r.req_type + ')')}&body=${encodeURIComponent('مرحباً،\n\nرداً على طلبك:\n«' + String(r.subject || '').slice(0, 120) + '»\n\n')}"
-             target="_blank" rel="noopener"
-             onclick="adminSupportDone(${r.id})"
+        : `<button onclick="adminReplyEmail(${r.id});adminSupportDone(${r.id})"
              style="padding:5px 10px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
                     background:rgba(96,165,250,.1);color:#93c5fd;font-size:10.5px;font-weight:700;
-                    cursor:pointer;text-decoration:none">✉️ رد بالإيميل</a>`;
+                    cursor:pointer">✉️ رد بالإيميل</button>`;
       return `
       <div style="padding:9px 2px;border-bottom:1px solid var(--bdr);
                   ${r.status === 'new' ? '' : 'opacity:.6'}">
