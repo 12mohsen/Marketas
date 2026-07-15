@@ -4253,7 +4253,8 @@ async function adminLoadSupport() {
         ? `<button onclick="adminToggleReply(${r.id})"
              style="padding:5px 10px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
                     background:rgba(96,165,250,.1);color:#93c5fd;font-size:10.5px;font-weight:700;cursor:pointer">↩️ رد</button>`
-        : `<a href="mailto:${r.email}?subject=${encodeURIComponent('رد على طلبك — تداول بلس (' + r.req_type + ')')}&body=${encodeURIComponent('مرحباً،\n\nرداً على طلبك:\n«' + String(r.subject || '').slice(0, 120) + '»\n\n')}"
+        : `<a href="https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(r.email)}&subject=${encodeURIComponent('رد على طلبك — تداول بلس (' + r.req_type + ')')}&body=${encodeURIComponent('مرحباً،\n\nرداً على طلبك:\n«' + String(r.subject || '').slice(0, 120) + '»\n\n')}"
+             target="_blank" rel="noopener"
              onclick="adminSupportDone(${r.id})"
              style="padding:5px 10px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
                     background:rgba(96,165,250,.1);color:#93c5fd;font-size:10.5px;font-weight:700;
