@@ -4236,17 +4236,12 @@ function adminReplyEmail(id) {
   const webUrl = 'https://outlook.live.com/mail/0/deeplink/compose?' + q;
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
   if (isMobile) {
-    /* افتح تطبيق Outlook على شاشة الإنشاء مباشرة؛ إن لم يُفتح خلال 1.2ث → افتح نسخة الويب */
-    let switched = false;
-    const onHide = () => { switched = true; };
-    document.addEventListener('visibilitychange', onHide, { once: true });
-    window.addEventListener('pagehide', onHide, { once: true });
-    setTimeout(() => {
-      document.removeEventListener('visibilitychange', onHide);
-      if (!switched) window.open(webUrl, '_blank');
-    }, 1200);
-    window.location.href = 'ms-outlook://compose?' + q;
+    /* الجوال: mailto أكثر توافقاً — يفتح شاشة الإنشاء مع البريد معبّأ في تطبيق البريد.
+       لجعله يفتح Outlook: اضبط Outlook كتطبيق البريد الافتراضي على الجوال (مرة واحدة). */
+    window.location.href = 'mailto:' + r.email +
+      '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   } else {
+    /* الكمبيوتر: افتح Outlook على الويب على شاشة الإنشاء مباشرة */
     window.open(webUrl, '_blank', 'noopener');
   }
 }
