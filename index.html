@@ -7547,12 +7547,22 @@ function pfAnalyze(sym, name) {
     ? Math.max(-100, Math.min(500, pct / daysHeld * 365))
     : null;
 
-  // ── Fallback أهداف من بيانات 52 أسبوع ──
-  let target1 = highN ? +(highN * 1.05).toFixed(2)  : null;
-  let target2 = highN ? +(highN * 1.10).toFixed(2)  : null;
-  let target3 = highN ? +(highN * 1.17).toFixed(2)  : null;
-  // وقف الخسارة: نسبة ثابتة من السعر الحالي (وليس من القاع السنوي الذي قد يكون بعيداً جداً)
+  // 🎯 أهداف واقعية متدرّجة (نفس منطق نافذة التحليل) بدل «القمة السنوية × نسب ثابتة»
+  //    التي كانت تُظهر أهدافاً غير منطقية (+120%..+150%) لسهم قرب قاعه السنوي.
+  let target1 = null, target2 = null, target3 = null;
   let stopLoss = +(cur * 0.92).toFixed(2);
+  const _tg = _smartTargets(cur, highN, lowN);
+  if (_tg) {
+    target1 = _tg.t1;               // القريب
+    target2 = _tg.t2;               // المتوسط
+    stopLoss = _tg.sl;
+    const ceil = (highN && highN > cur) ? highN : cur * 1.6;   // سقف = القمة السنوية
+    let t3 = cur * (1 + (_tg.t2Pct / 100) * 1.55);             // البعيد
+    t3 = Math.min(t3, ceil);
+    if (t3 <= target2) t3 = target2 + (ceil - target2) * 0.5;
+    if (t3 <= target2) t3 = target2 * 1.03;
+    target3 = +t3.toFixed(2);
+  }
   const rewardRisk = (target1 && stopLoss && cur > stopLoss)
     ? +((target1 - cur) / (cur - stopLoss)).toFixed(1) : null;
 
@@ -9094,6 +9104,46 @@ function switchTab(tab, btn) {
 /* ─────────────────────────────────────
    MARKET ANALYSIS
 ───────────────────────────────────── */
+/* 🎯 أهداف واقعية متدرّجة — دالة موحّدة يستخدمها التحليل والبطاقات.
+   بدل «القمة السنوية» كهدف (قفزة قد تصل +113%)، تبني هدفين من السعر الحالي:
+   • مُعدَّلين بتذبذب السهم نفسه (عرض النطاق السنوي نسبةً للسعر)،
+   • ومساحة الصعود المتبقية (أهداف أصغر كلما اقترب من القمة)،
+   • مقيّدين بالقمة السنوية كسقف مقاومة،
+   • ووقف خسارة بنسبة منطقية لا تحت الدعم السنوي كثيراً.
+   تُرجع الأرقام + النِّسَب المئوية + نسبة المخاطرة/العائد. */
+function _smartTargets(price, hi, lo) {
+  const p = toNum(price);
+  if (!p || p <= 0) return null;
+  const H = toNum(hi), L = toNum(lo);
+  const has  = H && L && H > L;
+  const hi52 = has ? H : p * 1.4;
+  const lo52 = has ? L : p * 0.75;
+  const pos  = Math.min(1, Math.max(0, (p - lo52) / (hi52 - lo52)));        // 0=قاع .. 1=قمة
+  const volMult  = Math.min(1.4, Math.max(0.7, (hi52 - lo52) / p / 0.7));    // تذبذب السهم
+  const roomMult = Math.min(1.2, Math.max(0.6, 0.6 + 0.6 * (1 - pos)));      // مساحة أقل قرب القمة
+  let t1 = p * (1 + 0.07 * volMult * roomMult);
+  let t2 = p * (1 + 0.16 * volMult * roomMult);
+  let capped = false;
+  if (has) {
+    if (t2 > hi52) { t2 = hi52; capped = true; }
+    if (t1 > hi52) { capped = true; }
+  }
+  if (t2 <= p) t2 = p * 1.04;                            // ضمان هدف موجب
+  if (t1 >= t2 || t1 <= p) t1 = p + (t2 - p) * 0.55;     // ضمان p < t1 < t2
+  let slPct = Math.min(0.09, Math.max(0.05, 0.06 * volMult));
+  let sl = p * (1 - slPct);
+  if (has) sl = Math.max(sl, lo52 * 0.96);               // لا تحت الدعم السنوي كثيراً
+  const rnd = v => +v.toFixed(2);
+  t1 = rnd(t1); t2 = rnd(t2); sl = rnd(sl);
+  const rr = (p > sl) ? +(((t1 - p) / (p - sl))).toFixed(1) : null;
+  return {
+    t1, t2, sl, capped, rr,
+    t1Pct: rnd((t1 / p - 1) * 100),
+    t2Pct: rnd((t2 / p - 1) * 100),
+    slPct: rnd((sl / p - 1) * 100),
+  };
+}
+
 /* ─────────────────────────────────────
    تقييم فني سريع (موقع السعر + الأهداف + وقف الخسارة)
    يُستخدم مباشرة داخل البطاقات في كل الأقسام
@@ -9137,20 +9187,8 @@ function techEvalCompute(r) {
 
   let target1 = null, target2 = null, stopLoss = null;
   if (high && low && price && position !== null) {
-    const range = high - low;
-    if (position < 0.3) {
-      target1  = +(low + range * 0.5).toFixed(2);
-      target2  = +(high).toFixed(2);
-      stopLoss = +(low * 0.95).toFixed(2);
-    } else if (position < 0.7) {
-      target1  = +(high).toFixed(2);
-      target2  = +(high * 1.1).toFixed(2);
-      stopLoss = +(low * 0.92).toFixed(2);
-    } else {
-      target1  = +(high * 1.05).toFixed(2);
-      target2  = +(high * 1.1).toFixed(2);
-      stopLoss = +(price * 0.92).toFixed(2);
-    }
+    const _tg = _smartTargets(price, high, low);
+    if (_tg) { target1 = _tg.t1; target2 = _tg.t2; stopLoss = _tg.sl; }
   }
 
   return { price, high, low, vol, pe, position, positionText, positionColor, volRating, peRating, target1, target2, stopLoss };
@@ -10318,42 +10356,34 @@ function marketStockAnalysis(sym, name) {
     else peRating = 'مرتفع جداً';
   }
 
-  // حساب الأهداف
-  let target1, target2, stopLoss;
-  if (high && low && price) {
-    const range = high - low;
-    if (position < 0.3) {
-      target1 = +(low + range * 0.5).toFixed(2);
-      target2 = +(high).toFixed(2);
-      stopLoss = +(low * 0.95).toFixed(2);
-    } else if (position < 0.7) {
-      target1 = +(high).toFixed(2);
-      target2 = +(high * 1.1).toFixed(2);
-      stopLoss = +(low * 0.92).toFixed(2);
-    } else {
-      target1 = +(high * 1.05).toFixed(2);
-      target2 = +(high * 1.1).toFixed(2);
-      stopLoss = +(price * 0.92).toFixed(2);
-    }
-  }
+  // 🎯 حساب أهداف واقعية متدرّجة (دالة موحّدة)
+  const _tg = _smartTargets(price, high, low);
+  let target1 = _tg ? _tg.t1 : null;
+  let target2 = _tg ? _tg.t2 : null;
+  let stopLoss = _tg ? _tg.sl : null;
+  const _pct = v => (v > 0 ? '+' : '') + v + '%';
 
   const _maTgtHTML = target1 ? `
       <div style="background:var(--surf-alt);border:1px solid var(--bdr);border-radius:12px;padding:16px;margin-bottom:16px">
-        <div style="font-size:12px;color:#4ade80;margin-bottom:8px;font-weight:600">🎯 الأهداف السعرية</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;color:#4ade80;font-weight:600">🎯 الأهداف السعرية</div>
+          ${_tg && _tg.rr ? `<div style="font-size:10.5px;color:var(--txt-m)">مخاطرة/عائد ≈ <b style="color:${_tg.rr >= 1.5 ? '#4ade80' : '#fbbf24'}">${_tg.rr}</b></div>` : ''}
+        </div>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
           <div style="background:#0d2a1a;border:1px solid #166534;border-radius:8px;padding:10px;text-align:center">
             <div style="font-size:14px;font-weight:700;color:#4ade80">${fmt(target1)} ر.س</div>
-            <div style="font-size:10px;color:#4ade80;margin-top:2px">الهدف الأول</div>
+            <div style="font-size:10px;color:#4ade80;margin-top:2px">الهدف الأول${_tg ? ' · ' + _pct(_tg.t1Pct) : ''}</div>
           </div>
           <div style="background:#0d1a3a;border:1px solid #1e3a8a;border-radius:8px;padding:10px;text-align:center">
             <div style="font-size:14px;font-weight:700;color:#93c5fd">${fmt(target2)} ر.س</div>
-            <div style="font-size:10px;color:#93c5fd;margin-top:2px">الهدف الثاني</div>
+            <div style="font-size:10px;color:#93c5fd;margin-top:2px">الهدف الثاني${_tg ? ' · ' + _pct(_tg.t2Pct) : ''}</div>
           </div>
         </div>
         <div style="margin-top:10px;text-align:center">
-          <div style="font-size:11px;color:var(--txt-m)">وقف الخسارة المقترح</div>
+          <div style="font-size:11px;color:var(--txt-m)">وقف الخسارة المقترح${_tg ? ' · ' + _pct(_tg.slPct) : ''}</div>
           <div style="font-size:14px;font-weight:700;color:#f87171">${fmt(stopLoss)} ر.س</div>
         </div>
+        ${_tg && _tg.capped ? '<div style="font-size:10px;color:var(--txt-m);text-align:center;margin-top:8px;line-height:1.7">🔵 الهدف الثاني مقيّد عند القمة السنوية (مقاومة قوية)</div>' : ''}
       </div>` : '';
   // عرض التحليل في نافذة منبثقة
   const overlayId = 'market-analysis-' + Date.now();
