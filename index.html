@@ -8710,12 +8710,24 @@ document.addEventListener('keydown', e => {
 
 
   // جلب شموع سنة/يومي OHLCV من ياهو عبر نفس بروكسيات التطبيق
+  /* 🕒 هل شموع القاعدة حديثة؟ (آخر شمعة خلال ~6 أيام من آخر إغلاق سوق)
+     يمنع استخدام بيانات تاريخية متأخرة تُظهر سعراً خاطئاً (مثل 31.10 بدل 22.60). */
+  function _predDbFresh(dbc) {
+    try {
+      const last = dbc[dbc.length - 1];
+      if (!last || !last.d) return false;
+      const lastMs = new Date(String(last.d).slice(0, 10) + 'T00:00:00Z').getTime();
+      if (isNaN(lastMs)) return false;
+      return lastMs >= (predLastClose() - 6 * 24 * 3600000);
+    } catch (e) { return false; }
+  }
+
   async function predFetchCandles(sym) {
     if (PRED_CACHE[sym]) return PRED_CACHE[sym];
-    /* 📈 جرّب القاعدة أولاً (خزّنها الأدمن) قبل الجلب من المصدر الخارجي */
+    /* 📈 جرّب القاعدة أولاً (خزّنها الأدمن) — بشرط أن تكون حديثة، وإلا اجلب طازجاً من المصدر */
     try {
       const dbc = await histDbLoad(sym, 25);
-      if (dbc && dbc.length >= 25) { const c = dbc.slice(-260); PRED_CACHE[sym] = c; return c; }
+      if (dbc && dbc.length >= 25 && _predDbFresh(dbc)) { const c = dbc.slice(-260); PRED_CACHE[sym] = c; return c; }
     } catch (e) {}
     const ticker = (sym === 'TASI') ? '^TASI.SR' : sym + '.SR';
     const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1y';
