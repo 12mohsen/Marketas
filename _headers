@@ -1,0 +1,13 @@
+# إعدادات Netlify — منع تخزين index.html في كاش المتصفّح
+# يضمن أن كل جهاز يجلب أحدث نسخة دائماً (فتظهر بوابة الموافقة والتحديثات فوراً)
+# ارفع هذا الملف بجانب index.html في نفس المجلد على Netlify.
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+/
+  Cache-Control: no-cache, must-revalidate
+  Pragma: no-cache
+  Expires: 0

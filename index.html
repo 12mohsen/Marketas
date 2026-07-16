@@ -1581,11 +1581,13 @@ canvas#mdChart{display:block;width:100% !important}
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       <button class="pred-filter active" id="predFilter-all"      onclick="predSetFilter('all')">الكل <span id="predCount-all">(0)</span></button>
+      <button class="pred-filter"        id="predFilter-ready"    onclick="predSetFilter('ready')">🎯 جاهز <span id="predCount-ready">(0)</span></button>
       <button class="pred-filter"        id="predFilter-high"     onclick="predSetFilter('high')">احتمال عالٍ <span id="predCount-high">(0)</span></button>
       <button class="pred-filter"        id="predFilter-imminent" onclick="predSetFilter('imminent')">وشيك <span id="predCount-imminent">(0)</span></button>
       <button class="pred-filter"        id="predFilter-up"       onclick="predSetFilter('up')">صعودي <span id="predCount-up">(0)</span></button>
       <button class="pred-filter"        id="predFilter-down"     onclick="predSetFilter('down')">هبوطي <span id="predCount-down">(0)</span></button>
       <button class="pred-filter"        id="predFilter-base"     onclick="predSetFilter('base')">🧱 قاعدة <span id="predCount-base">(0)</span></button>
+      <button class="pred-filter"        id="predFilter-elliott"  onclick="predSetFilter('elliott')">🌊 بداية دورة <span id="predCount-elliott">(0)</span></button>
       <button class="pred-filter"        id="predFilter-success"  onclick="predSetFilter('success')" style="display:none">✅ نجح <span id="predCount-success">(0)</span></button>
       <button class="pred-filter"        id="predFilter-fail"     onclick="predSetFilter('fail')" style="display:none">❌ لم ينجح <span id="predCount-fail">(0)</span></button>
       <span id="predRateBadge" style="display:none;align-self:center;font-size:12px;background:var(--surf-alt);border:1px solid var(--bdr);border-radius:20px;padding:5px 12px"></span>
@@ -1961,7 +1963,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-13-v99 — 📜 عمود «وافق ✓» بجانب كل مستخدم في لوحة الأدمن', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-16-v109 — 🎯 كل قوائم الرادار مرتّبة بالإشارة الأقوى أولاً + خط أوضح · إشارة موحّدة + فلتر «جاهز» · الزوايا الزمنية · بداية الدورة · نجح/لم ينجح', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -7171,6 +7173,23 @@ function wlRender() {
     const tagTxt = pct === null ? 'مراقبة' : (pct >= 0 ? 'ربح' : 'خسارة');
     const diffAmt = (cur !== null && base !== null) ? (cur - base) : null;
 
+    /* 🔮 شارة التنبؤ إن أُضيف السهم من متنبّئ الانفجار — مع تتبّع هل تحقّق الهدف */
+    let predBadge = '';
+    if (w.pred) {
+      const p = w.pred;
+      const dirIco = p.dir === 'up' ? '🟢' : p.dir === 'down' ? '🔴' : '⚪';
+      let outTxt = '', outClr = '';
+      if (p.atPrice && p.targetPct != null && cur !== null) {
+        const tp = p.atPrice * (1 + p.targetPct / 100);
+        const hit = p.dir === 'up' ? cur >= tp : p.dir === 'down' ? cur <= tp : false;
+        outTxt = hit ? '✅ تحقّق' : '⏳ قيد المتابعة';
+        outClr = hit ? '#4ade80' : '#fbbf24';
+      }
+      predBadge =
+        `<span class="pf-tag" style="background:rgba(139,92,246,.15);color:#c4b5fd;border:1px solid rgba(139,92,246,.4)">🔮 تنبّؤ ${dirIco} ${p.prob}%${p.targetPct != null ? ' · ' + (p.targetPct > 0 ? '+' : '') + p.targetPct + '%' : ''}</span>` +
+        (outTxt ? `<span class="pf-tag" style="color:${outClr};border:1px solid ${outClr}55">${outTxt}</span>` : '');
+    }
+
     return `
     <div class="pf-card" onclick='histOpenFromWatchlist(${JSON.stringify(w).replace(/'/g,"&#39;")})' style="cursor:pointer">
       <div class="pf-card-top">
@@ -7179,6 +7198,7 @@ function wlRender() {
           <div class="pf-card-sym">${w.sym || ''} ${w.sector ? '· ' + w.sector : ''}</div>
           <div class="pf-card-tags">
             <span class="pf-tag ${tagCls}">${tagTxt}</span>
+            ${predBadge}
           </div>
         </div>
         <div class="pf-card-pnl">
@@ -7678,7 +7698,13 @@ function pfAnalyze(sym, name) {
 
     <!-- ⑥ قسم التحليل الفني التاريخي — يُحدَّث بعد الجلب -->
     <div class="an-section" id="anHistSection">
-      <div class="an-sec-title" style="color:#a78bfa">🔬 التحليل الفني التاريخي</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+        <div class="an-sec-title" style="color:#a78bfa;margin:0">🔬 التحليل الفني التاريخي</div>
+        <button onclick="histOpen('${sym}','${(name || '').replace(/'/g, "\\'")}')"
+          style="background:linear-gradient(135deg,#4c1d95,#7c3aed);border:none;color:#fff;border-radius:9px;
+                 padding:7px 12px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit">
+          📊 شارت الشموع الكامل</button>
+      </div>
       <div id="anHistBody" style="text-align:center;padding:20px;color:var(--txt-m)">
         <div style="font-size:22px;margin-bottom:8px">⏳</div>
         <div style="font-size:13px">جارٍ جلب البيانات التاريخية...</div>
@@ -7704,6 +7730,23 @@ function pfAnalyze(sym, name) {
 async function pfAnalyzeFetchHist(sym, cur, highN, lowN, volN, fmt) {
   const histBodyEl = document.getElementById('anHistBody');
   if (!histBodyEl) return;
+
+  /* ✅ القاعدة أولاً: `historical_prices` هي المصدر الموثوق (سعر اسمي صحيح يطابق الحيّ،
+     محدّث يومياً) — يتفادى أسعار Yahoo المعدّلة بالتوزيعات وبيانات الشيت القديمة. */
+  if (typeof sb !== 'undefined' && sb) {
+    try {
+      const { data: dbc } = await sb.from('historical_prices')
+        .select('d,o,h,l,c,v').eq('symbol', sym).order('d', { ascending: false }).limit(1600);
+      if (dbc && dbc.length >= 2) {
+        const rowsFmt = dbc.map(r => [sym, r.d, +r.c, +r.v || 0, null, null, +r.o, +r.h, +r.l]);
+        histCache[`${sym}_daily`] = rowsFmt;
+        histDailyRawCache[sym] = rowsFmt;
+        _histDbLoaded.add(sym); _histDbTried.add(sym);
+        pfAnalyzeRenderHist(rowsFmt, cur, highN, lowN, volN, fmt);
+        return;
+      }
+    } catch (e) { /* لا اتصال بالقاعدة → نكمل بالمصادر الأخرى */ }
+  }
 
   // ── إذا كانت البيانات في الكاش نستخدمها فوراً ──
   const cached = histCache[`${sym}_daily`];
@@ -8815,7 +8858,13 @@ document.addEventListener('keydown', e => {
     }
     PRED_SCANNING = true; PRED_RESULTS = [];
     await predLoadIndicators();
-    const list = rows.filter(r => r.sym);
+    /* 🛡️ قائمة فريدة بالرمز — تمنع تكرار السهم إن ورد أكثر من مرة في بيانات السوق */
+    const _seenSym = new Set();
+    const list = rows.filter(r => {
+      const k = r && r.sym ? String(r.sym).trim() : '';
+      if (!k || _seenSym.has(k)) return false;
+      _seenSym.add(k); return true;
+    });
     const total = list.length; let done = 0, ok = 0, idx = 0;
     const btn = document.getElementById('predScanBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ جارٍ المسح...'; }
@@ -8828,7 +8877,12 @@ document.addEventListener('keydown', e => {
           const candles = await predFetchCandles(r.sym);
           if (candles) {
             const a = predAnalyze(candles, { dailyLimitPct: PRED_DAILY_LIMIT });
-            if (a.ok) { a.sym = r.sym; a.name = r.name; PRED_RESULTS.push(a); ok++; }
+            if (a.ok) {
+              a.sym = r.sym; a.name = r.name;
+              /* 🌊 مرحلة دورة إليوت لهذا السهم (لفلتر «بداية دورة» والشارة) */
+              try { const _el = (typeof elliottCompute === 'function') ? elliottCompute(candles, a.price) : null; if (_el) { a.elStage = _el.stage; a.elWave = _el.nowWave; a.elDir = _el.dir; } } catch (e) {}
+              PRED_RESULTS.push(a); ok++;
+            }
           }
         } catch (e) { /* تخطَّ السهم الفاشل */ }
         done++; predSetProgress(done, total, ok);
@@ -8855,13 +8909,26 @@ document.addEventListener('keydown', e => {
 
   const probColor = p => p >= 75 ? '#dc2626' : p >= 55 ? '#f4a20a' : '#16a34a';
 
+  /* 🎯 إشارة موحّدة تدمج الرادار (قصير المدى) + إليوت (الدورة) + التوقيت في حكم واحد */
+  function predSignal(r) {
+    const bull = r.direction === 'up', bear = r.direction === 'down';
+    const elUp = r.elDir === 'up', elEarly = r.elStage === 'مبكّرة';
+    const highP = r.probability >= 70;
+    if (bull && elUp && elEarly && highP) return { t: '🟢 دخول قوي',    c: '#22c55e', bg: '34,197,94',  rank: 3 };
+    if (bull && elUp)                     return { t: '🟢 دخول',         c: '#4ade80', bg: '74,222,128', rank: 2 };
+    if (bull && !elUp)                    return { t: '🟡 راقب · تعارض', c: '#fbbf24', bg: '251,191,36', rank: 1 };
+    if (bear && !elUp)                    return { t: '🔴 تجنّب',        c: '#f87171', bg: '248,113,113', rank: 0 };
+    return { t: '🟡 راقب', c: '#fbbf24', bg: '251,191,36', rank: 1 };
+  }
   function predCount(f) {
     if (f === 'all') return PRED_RESULTS.length;
+    if (f === 'ready') return PRED_RESULTS.filter(r => predSignal(r).rank >= 2).length;
     if (f === 'up') return PRED_RESULTS.filter(r => r.direction === 'up').length;
     if (f === 'down') return PRED_RESULTS.filter(r => r.direction === 'down').length;
     if (f === 'imminent') return PRED_RESULTS.filter(r => r.timing.level >= 2).length;
     if (f === 'high') return PRED_RESULTS.filter(r => r.probability >= 70).length;
     if (f === 'base') return PRED_RESULTS.filter(r => _symInd[r.sym] && _symInd[r.sym].base_flag).length;
+    if (f === 'elliott') return PRED_RESULTS.filter(r => r.elStage === 'مبكّرة').length;
     if (f === 'success') return _predStats.success;
     if (f === 'fail') return _predStats.fail;
     return 0;
@@ -8869,11 +8936,21 @@ document.addEventListener('keydown', e => {
 
   function predRender() {
     if (predLocked()) { predRenderLocked(); return; }
+    /* 🛡️ إزالة أي رموز مكرّرة من النتائج (يُصلح كاشاً متراكماً ويمنع تضخّم العدد) */
+    if (Array.isArray(PRED_RESULTS) && PRED_RESULTS.length) {
+      const _seen = new Set();
+      const _dedup = PRED_RESULTS.filter(r => {
+        const k = String((r && r.sym) || '').trim();
+        if (!k || _seen.has(k)) return false;
+        _seen.add(k); return true;
+      });
+      if (_dedup.length !== PRED_RESULTS.length) { PRED_RESULTS = _dedup; try { predSaveCache(); } catch (e) {} }
+    }
     const _sb = document.getElementById('predScanBtn');
     if (_sb && !PRED_SCANNING && String(_sb.textContent).indexOf('🔒') >= 0) {
       _sb.disabled = false; _sb.textContent = '🔮 مسح الانفجارات';
     }
-    ['all', 'high', 'imminent', 'up', 'down', 'base'].forEach(f => {
+    ['all', 'ready', 'high', 'imminent', 'up', 'down', 'base', 'elliott'].forEach(f => {
       const el = document.getElementById('predCount-' + f);
       if (el) el.textContent = '(' + predCount(f) + ')';
     });
@@ -8891,11 +8968,13 @@ document.addEventListener('keydown', e => {
       return;
     }
     let list = PRED_RESULTS.slice();
-    if (PRED_FILTER === 'up') list = list.filter(r => r.direction === 'up');
+    if (PRED_FILTER === 'ready') list = list.filter(r => predSignal(r).rank >= 2).sort((a, b) => predSignal(b).rank - predSignal(a).rank || b.probability - a.probability);
+    else if (PRED_FILTER === 'up') list = list.filter(r => r.direction === 'up');
     else if (PRED_FILTER === 'down') list = list.filter(r => r.direction === 'down');
     else if (PRED_FILTER === 'imminent') list = list.filter(r => r.timing.level >= 2);
     else if (PRED_FILTER === 'high') list = list.filter(r => r.probability >= 70);
     else if (PRED_FILTER === 'base') list = list.filter(r => _symInd[r.sym] && _symInd[r.sym].base_flag);
+    else if (PRED_FILTER === 'elliott') list = list.filter(r => r.elStage === 'مبكّرة');
 
     const q = (PRED_SEARCH || '').trim();
     if (q) {
@@ -8912,15 +8991,22 @@ document.addEventListener('keydown', e => {
       return;
     }
 
+    /* 🎯 رتّب دائماً بالإشارة الأقوى أولاً (دخول قوي → دخول → راقب → تجنّب) ثم الاحتمال */
+    list.sort((a, b) => predSignal(b).rank - predSignal(a).rank || (b.probability || 0) - (a.probability || 0));
+
     const rowsHtml = list.map((r, i) => {
       const tgt = (r.direction !== 'none' && r.targetPct != null)
         ? (r.targetPct > 0 ? '+' : '') + r.targetPct + '%<span style="color:var(--txt-m);font-size:10px"> / ' + r.daysToTarget + 'ي</span>'
         : '—';
       const timeBadge = r.timing.level >= 3 ? '🔴 ' : r.timing.level >= 2 ? '🟠 ' : '⚪ ';
+      const sig = predSignal(r);
       return '<tr onclick="predOpen(\'' + r.sym + '\')" style="cursor:pointer;border-bottom:1px solid var(--bdr)">' +
         '<td style="padding:9px 6px;color:var(--txt-m);font-size:11px">' + (i + 1) + '</td>' +
-        '<td style="padding:9px 6px"><div style="font-weight:700;font-size:12.5px">' + (r.name || '—') + '</div>' +
-          '<div style="color:var(--txt-m);font-size:10.5px">' + r.sym + (r.hasOHLC ? '' : ' · تقديري') + '</div>' + predSymAccBadge(r.sym) + '</td>' +
+        '<td style="padding:9px 6px">' +
+          '<div style="display:inline-block;font-size:11.5px;font-weight:800;padding:2px 11px;border-radius:20px;margin-bottom:4px;background:rgba(' + sig.bg + ',.2);color:' + sig.c + ';border:1px solid rgba(' + sig.bg + ',.5)">' + sig.t + '</div>' +
+          '<div style="font-weight:800;font-size:14px">' + (r.name || '—') + '</div>' +
+          '<div style="color:var(--txt-m);font-size:11.5px">' + r.sym + (r.hasOHLC ? '' : ' · تقديري') + '</div>' + predSymAccBadge(r.sym) +
+          (r.elStage ? '<div style="display:inline-block;margin-top:2px;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;background:rgba(' + (r.elStage === 'مبكّرة' ? '74,222,128' : r.elStage === 'منتصف' ? '251,191,36' : '248,113,113') + ',.15);color:' + (r.elStage === 'مبكّرة' ? '#4ade80' : r.elStage === 'منتصف' ? '#fbbf24' : '#f87171') + '">🌊 ' + r.elStage + (r.elWave ? ' · م' + r.elWave : '') + '</div>' : '') + '</td>' +
         '<td style="padding:9px 6px;text-align:center;font-weight:700">' + r.price.toFixed(2) + '</td>' +
         '<td style="padding:9px 6px;min-width:110px">' +
           '<div style="display:flex;align-items:center;gap:6px">' +
@@ -9024,7 +9110,8 @@ document.addEventListener('keydown', e => {
         cell('الاتجاه العام (5س)', _symInd[res.sym] ? (_symInd[res.sym].trend === 'up' ? '📈 صاعد' : _symInd[res.sym].trend === 'down' ? '📉 هابط' : '➡️ عرضي') : '—') +
         cell('قاعدة تراكم', (_symInd[res.sym] && _symInd[res.sym].base_flag) ? ('🧱 نعم · ' + (_symInd[res.sym].base_score || 0)) : '—') +
       '</div>' +
-      '<div style="display:flex;gap:8px;margin-top:14px">' +
+      '<button onclick="predFullAnalysis(\'' + res.sym + '\')" style="width:100%;margin-top:14px;background:var(--surf-alt);border:1px solid var(--bdr);color:var(--txt);border-radius:10px;padding:11px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">🔬 التحليل الكامل (بيانات السوق + الأهداف)</button>' +
+      '<div style="display:flex;gap:8px;margin-top:8px">' +
         '<button onclick="predAddWatch(\'' + res.sym + '\')" style="flex:1;background:var(--surf-alt);border:1px solid var(--bdr);color:var(--txt);border-radius:10px;padding:11px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">👁️ إضافة للمراقبة</button>' +
         '<button onclick="predAddPortfolio(\'' + res.sym + '\')" style="flex:1;background:linear-gradient(135deg,var(--g-mid),var(--g-accent));border:none;color:#fff;border-radius:10px;padding:11px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">📈 إضافة للمحفظة</button>' +
       '</div>' +
@@ -9038,7 +9125,9 @@ document.addEventListener('keydown', e => {
   window.predToggleUserStats = predToggleUserStats;
   window.predInit = predInit;
   window.predSearch = function (v) { PRED_SEARCH = v || ''; predRender(); };
-  window.predOpen = function (sym) {
+  // 🔬 التحليل الكامل (بيانات السوق + التقييم الفني + الأهداف) — من زر داخل نافذة التنبؤ
+  window.predFullAnalysis = function (sym) {
+    const ov = document.getElementById('predDetailOv'); if (ov) ov.style.display = 'none';
     const res = PRED_RESULTS.find(x => x.sym === sym);
     const nm  = res ? res.name : sym;
     // بحث متسامح عن صف السهم في بيانات السوق: بالرمز، ثم بالأرقام، ثم بالاسم
@@ -9055,12 +9144,10 @@ document.addEventListener('keydown', e => {
         base = rows.find(x => arNormalize(x.name || '') === nn);
       }
     }
-    // عُثر على صف كامل → النافذة الغنية (بيانات + تقييم فني + أهداف)
     if (base) {
       if (base.sym && typeof marketStockAnalysis === 'function') { marketStockAnalysis(base.sym, base.name || nm); return; }
       if (typeof openModal === 'function') { openModal(base); return; }
     }
-    // لم يُعثر على صف — غالباً بيانات السوق لم تكتمل بعد
     if ((!Array.isArray(rows) || rows.length === 0) && typeof showToast === 'function') {
       showToast('⏳ جارٍ تحميل بيانات السوق — أعد المحاولة بعد لحظات');
     }
@@ -9070,11 +9157,29 @@ document.addEventListener('keydown', e => {
       openModal(obj);
     }
   };
+  // 🔮 النقر على سهم في المتنبّئ → نافذة التنبؤ الغنية (تُوضّح لماذا رُشّح)، وإن غابت بياناته → التحليل الكامل
+  window.predOpen = function (sym) {
+    const res = PRED_RESULTS.find(x => x.sym === sym);
+    if (res) { predShowDetail(res); return; }
+    window.predFullAnalysis(sym);
+  };
   // ➕ إضافة سهم من المتنبئ إلى المراقبة/المحفظة (يعيد استخدام دوال التطبيق)
   window.predAddWatch = function (sym) {
     const r = PRED_RESULTS.find(x => x.sym === sym); const nm = r ? r.name : sym;
     if (typeof wlAddFromOpportunity === 'function') wlAddFromOpportunity(sym, nm);
     else if (typeof wlAdd === 'function') wlAdd(sym, nm);
+    /* 🔮 احفظ سياق التنبؤ مع سهم المراقبة (اتجاه/احتمال/هدف/سعر وقت الإضافة) لتتبّع هل تحقّق */
+    try {
+      if (r && typeof watchlist !== 'undefined') {
+        const w = watchlist.find(x => x.sym === sym);
+        if (w) {
+          w.pred = { dir: r.direction, prob: r.probability, targetPct: r.targetPct,
+                     days: r.daysToTarget, atPrice: r.price, ts: Date.now() };
+          if (typeof wlSave === 'function') wlSave();
+          if (typeof wlRender === 'function') wlRender();
+        }
+      }
+    } catch (e) {}
   };
   window.predAddPortfolio = function (sym) {
     const r = PRED_RESULTS.find(x => x.sym === sym); const nm = r ? r.name : sym;
@@ -9671,9 +9776,17 @@ function histComputeTechnical(symHistory) {
   if (position < 0.25) predScore += 1;
   else if (position > 0.85) predScore -= 1;
 
+  /* 📉 زخم قصير المدى (من ميل الانحدار) — يُعرض منفصلاً عن التقييم لبيان الاتجاه الفعلي */
+  const upMom = slopePct > 0.15, downMom = slopePct < -0.15;
+  const momText  = upMom ? '📈 صاعد' : downMom ? '📉 هابط' : '➡️ عرضي';
+  const momColor = upMom ? '#4ade80' : downMom ? '#f87171' : '#fde68a';
+  const momDir   = upMom ? 'up' : downMom ? 'down' : 'flat';
+
+  /* التقييم: إشارة موجبة بلا زخم صاعد (بيع مفرط/قرب القاع) = «فرصة قيمة» عكسية،
+     لا «اتجاه صاعد» — تسمية أوضح تمنع ظهور سهم هابط بوصف «إيجابي قوي». */
   let predLabel, predColor, predIcon;
-  if (predScore >= 3)       { predLabel = 'إيجابي قوي'; predColor = '#4ade80'; predIcon = '📈'; }
-  else if (predScore >= 1)  { predLabel = 'إيجابي';      predColor = '#86efac'; predIcon = '↗️'; }
+  if (predScore >= 3)       { if (upMom) { predLabel = 'إيجابي قوي'; predColor = '#4ade80'; predIcon = '📈'; } else { predLabel = 'فرصة قيمة (قرب القاع)'; predColor = '#4ade80'; predIcon = '💎'; } }
+  else if (predScore >= 1)  { if (upMom) { predLabel = 'إيجابي';      predColor = '#86efac'; predIcon = '↗️'; } else { predLabel = 'فرصة قيمة';            predColor = '#86efac'; predIcon = '💎'; } }
   else if (predScore <= -3) { predLabel = 'سلبي قوي';    predColor = '#f87171'; predIcon = '📉'; }
   else if (predScore <= -1) { predLabel = 'سلبي';        predColor = '#fca5a5'; predIcon = '↘️'; }
   else                       { predLabel = 'محايد';       predColor = '#fde68a'; predIcon = '➡️'; }
@@ -9691,6 +9804,7 @@ function histComputeTechnical(symHistory) {
   return {
     rsi, support: +low.toFixed(2), resistance: +high.toFixed(2), fib,
     slopePct, position, predScore, predLabel, predColor, predIcon,
+    momText, momColor, momDir,
     entryPoint, dataPoints: n, current: +current.toFixed(2), dailyChgPct,
     periodLabel: periodLabel || `آخر ${n} يوم تداول`, sparseData,
   };
@@ -10194,7 +10308,10 @@ function _renderOpportunities(filter, histAll) {
               border:1px solid ${top3 ? 'rgba(74,222,128,.4)' : 'var(--bdr)'}">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <span style="font-size:${top3 ? '19px' : '11.5px'};font-weight:800;color:var(--txt-m)">${rankIcon}</span>
-              <span style="font-size:11px;font-weight:700;color:${h.predColor}">${h.predIcon} ${h.predLabel}</span>
+              <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+                <span style="font-size:11px;font-weight:700;color:${h.predColor}">${h.predIcon} ${h.predLabel}</span>
+                ${h.momText ? `<span style="font-size:9px;font-weight:700;color:${h.momColor}">زخم: ${h.momText}</span>` : ''}
+              </span>
             </div>
             <div style="font-weight:800;font-size:14.5px;line-height:1.3">${s.name}</div>
             <div style="font-size:11px;color:var(--txt-m);margin-bottom:8px">${s.sym}</div>
@@ -10256,7 +10373,8 @@ function _renderOpportunities(filter, histAll) {
         <div style="font-size:11px;color:var(--txt-m)">🔻 أدنى (${h.dataPoints}ي): <strong style="color:#f87171">${fmt(h.support)} ر.س</strong></div>
         <div style="font-size:11px;color:var(--txt-m)">🔺 أعلى (${h.dataPoints}ي): <strong style="color:#4ade80">${fmt(h.resistance)} ر.س</strong></div>
         <div style="font-size:11px;color:var(--txt-m)">RSI: <strong style="color:${h.rsi<30?'#4ade80':h.rsi>70?'#f87171':'var(--txt)'}">${h.rsi}</strong></div>
-        <div style="font-size:11px;color:${h.predColor};font-weight:700">${h.predIcon} زخم قصير المدى: ${h.predLabel}</div>
+        <div style="font-size:11px;color:${h.momColor};font-weight:700">زخم قصير المدى: ${h.momText}</div>
+        <div style="font-size:11px;color:${h.predColor};font-weight:700">${h.predIcon} التقييم: ${h.predLabel}</div>
       </div>` : `
       <div style="font-size:10.5px;color:var(--txt-m);margin-top:6px;padding-top:6px;border-top:1px solid var(--bdr)">⚠️ لا تتوفر بيانات تاريخية كافية لهذا السهم بعد (RSI/الدعم/التوقع)</div>`;
     const techRow = techEvalHTML(s, 'analysis');
@@ -10306,9 +10424,181 @@ function _renderOpportunities(filter, histAll) {
 /* ─────────────────────────────────────
    MARKET STOCK ANALYSIS (General Stock Analysis)
 ───────────────────────────────────── */
+/* 🌊 موجات إليوت — إسقاط تلقائي: يكتشف الموجة الأولى (أبرز تأرجح حديث: قاع↔قمة)
+   ويحسب أهداف الموجات 2‑3‑4‑5 وA‑B‑C بعلاقات فيبوناتشي. تعليمي احتمالي فقط. */
+function elliottCompute(series, curPrice) {
+  if (!Array.isArray(series) || series.length < 20) return null;
+  const pts = series.map(r => ({
+    t: r.date || r.d || r.t || (Array.isArray(r) ? r[1] : ''),
+    c: toNum(r.close != null ? r.close : (r.c != null ? r.c : (Array.isArray(r) ? r[2] : null))),
+  })).filter(p => p.c && p.c > 0);
+  if (pts.length < 20) return null;
+  pts.sort((a, b) => (a.t < b.t ? -1 : 1));
+  const win = pts.slice(-Math.min(160, pts.length));
+  const vals = win.map(p => p.c);
+  /* زجزاج: يكتشف نقاط الانعطاف بعتبة نسبية لالتقاط «الساق النشطة» الحالية بدل أكبر تأرجح مطلق */
+  const zz = (v, pct) => {
+    const piv = []; let trend = 0, exV = v[0], exI = 0;
+    for (let i = 1; i < v.length; i++) {
+      const c = v[i];
+      if (trend >= 0) {
+        if (c >= exV) { exV = c; exI = i; }
+        else if (c <= exV * (1 - pct)) { piv.push({ i: exI, p: exV }); trend = -1; exV = c; exI = i; }
+      } else {
+        if (c <= exV) { exV = c; exI = i; }
+        else if (c >= exV * (1 + pct)) { piv.push({ i: exI, p: exV }); trend = 1; exV = c; exI = i; }
+      }
+    }
+    piv.push({ i: exI, p: exV });
+    return piv;
+  };
+  let piv = [];
+  for (const thr of [0.06, 0.045, 0.03]) { piv = zz(vals, thr); if (piv.length >= 3) break; }
+  if (piv.length < 2) piv = zz(vals, 0.02);
+  /* أضِف بداية النافذة كنقطة محورية مرشّحة — لالتقاط قاع/قمة بداية الدورة الحقيقي */
+  if (piv.length && piv[0].i !== 0) piv.unshift({ i: 0, p: vals[0] });
+  /* 🎯 ربط الموجة الأولى بـ«بداية الدورة»: المحور = القاع/القمة المحوري الأبرز،
+     والموجة الأولى = أول ساق منه (لا آخر ساق) — لالتقاط الدورة من أولها لا من نهايتها. */
+  let P0, P1, anchor = 0, upCycle = true;
+  if (piv.length >= 2) {
+    let loi = 0, hii = 0;
+    for (let i = 0; i < piv.length; i++) { if (piv[i].p < piv[loi].p) loi = i; if (piv[i].p > piv[hii].p) hii = i; }
+    upCycle = loi < hii;                              // القاع المحوري قبل القمة → دورة صاعدة
+    anchor = upCycle ? loi : hii;
+    if (anchor >= piv.length - 1) anchor = Math.max(0, piv.length - 2);   // اضمن ساقاً بعد المحور
+    P0 = piv[anchor].p;
+    P1 = piv[anchor + 1].p;                            // الموجة الأولى = أول ساق من المحور
+  } else {
+    let li = 0, hh = 0;
+    for (let i = 1; i < vals.length; i++) { if (vals[i] < vals[li]) li = i; if (vals[i] > vals[hh]) hh = i; }
+    upCycle = li < hh; P0 = upCycle ? vals[li] : vals[hh]; P1 = upCycle ? vals[hh] : vals[li];
+  }
+  if (P1 === P0) return null;
+  const up = P1 > P0;
+  const L1 = P1 - P0;                                  // موجّب صعوداً / سالب هبوطاً
+  /* 📍 مرحلة الدورة: كم ساقاً تحقّقت منذ المحور → أين نحن الآن ضمن الدورة */
+  const legs = (piv.length - 1) - anchor;
+  const waveNames = ['1', '2', '3', '4', '5', 'A', 'B', 'C'];
+  const nowWave = waveNames[Math.min(Math.max(legs, 0), 7)] || 'C';
+  let stage, stageColor;
+  if (legs <= 2)      { stage = 'مبكّرة';  stageColor = '#4ade80'; }  // الموجات 3‑5 ما زالت أمامك
+  else if (legs <= 4) { stage = 'منتصف';  stageColor = '#fbbf24'; }
+  else                { stage = 'متأخّرة'; stageColor = '#f87171'; }  // ضمن تصحيح A‑B‑C
+  /* ⏱️ الإيقاع الزمني (زوايا جان الزمنية مُكيّفة لليومي): متوسط مدة الساق بأيام التداول
+     → متى الانعطاف القادم المتوقّع (الوقت مكمّل لأهداف السعر). */
+  let rhythm = null, nextTurnIn = null;
+  if (piv.length >= 3) {
+    const durs = [];
+    for (let i = 1; i < piv.length; i++) durs.push(piv[i].i - piv[i - 1].i);
+    durs.sort((a, b) => a - b);
+    rhythm = durs[Math.floor(durs.length / 2)] || null;         // الوسيط = الإيقاع النموذجي
+    if (rhythm) nextTurnIn = rhythm - ((win.length - 1) - piv[piv.length - 1].i);
+  }
+  const curP = toNum(curPrice) || P1;
+  const w2 = P1 - 0.618 * L1;
+  const w3 = w2 + 1.618 * L1;
+  const w4 = w3 - 0.382 * (w3 - w2);
+  const w5 = w4 + 1.0 * L1;              // مساواة الموجة الأولى (شائع)
+  const imp = w5 - P0;
+  const A = w5 - 0.5 * imp;
+  const B = A + 0.618 * (w5 - A);
+  const C = B - (w5 - A);                // C ≈ طول A
+  const rnd = v => +v.toFixed(2);
+  const pct = v => (curPrice ? +(((v - curPrice) / curPrice) * 100).toFixed(1) : null);
+  const W = v => ({ v: rnd(v), pct: pct(v) });
+  return {
+    dir: up ? 'up' : 'down',
+    stage, stageColor, nowWave, legs,
+    rhythm, nextTurnIn,
+    cur: rnd(curP),
+    P0: rnd(P0), P1: rnd(P1),
+    w2: W(w2), w3: W(w3), w4: W(w4), w5: W(w5), A: W(A), B: W(B), C: W(C),
+    okW2: up ? w2 > P0 : w2 < P0,
+    okW4: up ? w4 > P1 : w4 < P1,
+  };
+}
+/* 🌊 رسم مسار موجات إليوت كزجزاج عصري (SVG): نقاط مرقّمة موصولة بخطوط ملوّنة حسب الاتجاه */
+function elliottSVG(e) {
+  const P = [
+    { l: '', p: e.P0 }, { l: '1', p: e.P1 }, { l: '2', p: e.w2.v },
+    { l: '3', p: e.w3.v }, { l: '4', p: e.w4.v }, { l: '5', p: e.w5.v },
+    { l: 'A', p: e.A.v }, { l: 'B', p: e.B.v }, { l: 'C', p: e.C.v },
+  ];
+  const ps = P.map(x => x.p);
+  let mn = Math.min.apply(null, ps), mx = Math.max.apply(null, ps);
+  if (mx <= mn) mx = mn + 1;
+  const pd = (mx - mn) * 0.18; mn -= pd; mx += pd;
+  const W = 340, H = 210, L = 16, R = 16, T = 26, Bm = 26;
+  const pw = W - L - R, ph = H - T - Bm, n = P.length;
+  const X = i => L + pw * (i / (n - 1));
+  const Y = p => T + ph * (1 - (p - mn) / (mx - mn));
+  let seg = '', nod = '';
+  for (let i = 1; i < n; i++) {
+    const up = P[i].p >= P[i - 1].p;
+    seg += `<line x1="${X(i - 1).toFixed(1)}" y1="${Y(P[i - 1].p).toFixed(1)}" x2="${X(i).toFixed(1)}" y2="${Y(P[i].p).toFixed(1)}" stroke="${up ? '#22c55e' : '#ef4444'}" stroke-width="2.4" stroke-linecap="round"/>`;
+  }
+  P.forEach((pt, i) => {
+    const x = X(i), y = Y(pt.p);
+    const up = i === 0 ? true : pt.p >= P[i - 1].p;
+    const clr = i === 0 ? '#64748b' : (up ? '#22c55e' : '#ef4444');
+    const ly = up ? y - 12 : y + 18;
+    nod += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${pt.l ? 9.5 : 4.5}" fill="${clr}" stroke="#0b1220" stroke-width="2"/>`;
+    if (pt.l) nod += `<text x="${x.toFixed(1)}" y="${(y + 3.6).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="800" fill="#fff">${pt.l}</text>`;
+    nod += `<text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#cbd5e1">${pt.p}</text>`;
+  });
+  let now = '';
+  if (e.cur != null) {
+    const yc = Math.max(T, Math.min(T + ph, Y(e.cur)));
+    now = `<line x1="${L}" y1="${yc.toFixed(1)}" x2="${(W - R).toFixed(1)}" y2="${yc.toFixed(1)}" stroke="#38bdf8" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/><text x="${(L + 2).toFixed(1)}" y="${(yc - 4).toFixed(1)}" text-anchor="start" font-size="8.5" font-weight="800" fill="#38bdf8">◄ الآن ${e.cur}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;direction:ltr;margin:4px 0">${seg}${now}${nod}</svg>`;
+}
+function elliottHTML(e) {
+  if (!e) return '';
+  const dirTxt = e.dir === 'up' ? '🟢 مسار صاعد (5 صعود · 3 تصحيح)' : '🔴 مسار هابط (5 هبوط · 3 تصحيح)';
+  const pctS = p => (p == null ? '' : `<span style="color:${p >= 0 ? '#4ade80' : '#f87171'};font-size:10px;margin-inline-start:4px">${p > 0 ? '+' : ''}${p}%</span>`);
+  const row = (lbl, w, hint) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bdr)">
+      <span style="font-size:11.5px;color:var(--txt-m)">${lbl}${hint ? ` <span style="font-size:9px;opacity:.7">${hint}</span>` : ''}</span>
+      <span style="font-weight:700;font-size:12.5px">${w.v} ر.س${pctS(w.pct)}</span>
+    </div>`;
+  return `
+    <div style="background:var(--surf-alt);border:1px solid var(--bdr);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="font-size:12px;color:#38bdf8;font-weight:700;margin-bottom:6px">🌊 موجات إليوت (إسقاط تلقائي) · ${dirTxt}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
+        <span style="font-size:10.5px;color:var(--txt-m)">الموجة الأولى (الأساس): ${e.P0} → ${e.P1} ر.س</span>
+        <span style="font-size:10px;color:var(--txt-m)">📍 مرحلة الدورة: <b style="color:${e.stageColor}">${e.stage}</b> · قرب الموجة <b style="color:${e.stageColor}">${e.nowWave}</b></span>
+      </div>
+      ${elliottSVG(e)}
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px">
+        ${[['2', e.w2], ['3', e.w3], ['4', e.w4], ['5', e.w5], ['A', e.A], ['B', e.B], ['C', e.C]].map(([l, w]) =>
+          `<div style="background:var(--surf);border:1px solid var(--bdr);border-radius:8px;padding:5px 4px;text-align:center">
+             <div style="font-size:8.5px;color:var(--txt-m)">موجة ${l}</div>
+             <div style="font-size:11px;font-weight:800">${w.v}</div>
+             ${pctS(w.pct)}
+           </div>`).join('')}
+      </div>
+      ${e.stage === 'متأخّرة'
+        ? `<div style="font-size:10px;color:#fca5a5;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.28);border-radius:8px;padding:7px 9px;margin-top:8px;line-height:1.7">⚠️ الدورة <b>متأخّرة</b> — أغلب الموجات تحقّقت (قرب الموجة ${e.nowWave})، وفرص الالتقاط المبكّر محدودة. راقب تصحيح A‑B‑C أو بداية دورة جديدة.</div>`
+        : e.stage === 'مبكّرة'
+        ? `<div style="font-size:10px;color:#86efac;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.28);border-radius:8px;padding:7px 9px;margin-top:8px;line-height:1.7">🌱 دورة <b>مبكّرة</b> — فرصة لالتقاطها من أولها؛ الموجات القادمة (3‑5) ما زالت أمامك.</div>`
+        : ''}
+      ${e.rhythm ? `<div style="font-size:10px;color:#c4b5fd;background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.28);border-radius:8px;padding:7px 9px;margin-top:8px;line-height:1.7">⏱️ التوقيت الزمني (زوايا زمنية): إيقاع ~<b>${e.rhythm}</b> يوم/موجة · الانعطاف القادم ${e.nextTurnIn > 0 ? 'بعد ~<b>' + e.nextTurnIn + '</b> يوم تداول' : '<b>وشيك</b> (تجاوز الإيقاع المعتاد)'}.</div>` : ''}
+      ${(!e.okW2 || !e.okW4) ? `<div style="font-size:10px;color:#fbbf24;margin-top:8px">⚠️ قد يكون التشكيل غير مكتمل — تعامل بحذر.</div>` : ''}
+      <div style="font-size:9.5px;color:var(--txt-m);margin-top:8px;line-height:1.6">إسقاط آليّ مبنيّ على فيبوناتشي والساق النشطة الحالية — تقديري تعليمي فقط، وليس نصيحة استثمارية.</div>
+    </div>`;
+}
+
 function marketStockAnalysis(sym, name) {
   const r = rows.find(r => r.sym === sym);
   if (!r) return;
+  /* 🌊 إسقاط موجات إليوت من شموع القاعدة (أو الكاش اليومي) — تلقائي */
+  let _elliottHTML = '';
+  try {
+    let _ser = (typeof histDailyRawCache !== 'undefined' && histDailyRawCache[sym]) ? histDailyRawCache[sym]
+             : (typeof histAllDailyCache !== 'undefined' && histAllDailyCache && histAllDailyCache.bySymbol) ? histAllDailyCache.bySymbol[sym] : null;
+    if (_ser) { const _er = elliottCompute(_ser, toNum(r.price)); if (_er) _elliottHTML = elliottHTML(_er); }
+  } catch (e) {}
 
   const price = toNum(r.price);
   const vol = toNum(r.vol);
@@ -10444,6 +10734,8 @@ function marketStockAnalysis(sym, name) {
       <div id="histQuickBlock-${overlayId}" style="margin-bottom:16px">
         ${_wrapIfLocked(_currentTabKey(), histQuickBlockHTML(sym, overlayId))}
       </div>
+
+      ${_elliottHTML ? _wrapIfLocked(_currentTabKey(), _elliottHTML) : ''}
 
       <div style="display:flex;gap:10px">
         <button onclick="closeMarketAnalysis('${overlayId}');histOpen('${sym}','${name.replace(/'/g,"\\'")}')" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-weight:600;cursor:pointer">📅 عرض الجدول الكامل</button>
@@ -10874,6 +11166,24 @@ async function histFetch(tab) {
 
   /* ── الخطوة 1: نجلب بيانات اليومي الكاملة (تُستخدم كأساس لكل الفترات) ── */
   let dailyRaw = histDailyRawCache[sym];
+
+  /* ✅ القاعدة أولاً: `historical_prices` هي المصدر الموثوق (سعر اسمي صحيح، محدّث يومياً).
+     تتجاوز أسعار Yahoo المعدّلة بالتوزيعات (مثل أرامكو 24.11 بدل 26.68) وبيانات الشيت القديمة.
+     نقرأها مرة لكل رمز في الجلسة ونعتمدها، فلا يستبدلها مسار الشيت/Yahoo لاحقاً. */
+  if (typeof sb !== 'undefined' && sb && !_histDbLoaded.has(sym)) {
+    try {
+      const { data: dbc } = await sb.from('historical_prices')
+        .select('d,o,h,l,c,v').eq('symbol', sym)
+        .order('d', { ascending: false }).limit(1000);   // الأحدث أولاً (سقف 1000 = آخر ~4 سنوات، يشمل اليوم)
+      if (signal.aborted) return;
+      if (dbc && dbc.length >= 2) {
+        dailyRaw = dbc.map(r => [sym, r.d, +r.c, +r.v || 0, null, null, +r.o, +r.h, +r.l]);
+        histDailyRawCache[sym] = dailyRaw;
+        _histDbLoaded.add(sym); _histDbTried.add(sym);
+        console.info(`[hist] ✓ القاعدة (المصدر الموثوق): ${dailyRaw.length} صف للسهم ${sym}`);
+      }
+    } catch (e) { /* لا اتصال بالقاعدة → نكمل بالمصادر الأخرى */ }
+  }
 
   /* ── مسار سريع: نطلب صفوف هذا السهم فقط عبر ?symbol= (كيلوبايتات بدل 1.7 ميغا) ── */
   let symbolDefinitiveEmpty = false;
@@ -11356,13 +11666,15 @@ function histRender(dataRows, tab, isSim = false, isYahoo = false) {
 let histCandleInstance = null;
 let histCandleUpgrading = false;
 let _histDbTried = new Set();   // رموز جرّبنا جلب شموعها من القاعدة
+let _histDbLoaded = new Set();  // رموز حُمّلت شموعها من القاعدة (المصدر الموثوق) — لا تُستبدل بـ Yahoo
 
 /* 🕯️ جلب شموع OHLC كاملة من جدول historical_prices عند غياب OHLC (بيانات Yahoo إغلاق فقط) */
 async function histUpgradeFromDB(sym, tab) {
   if (!sb || !sym) return;
   try {
     const { data, error } = await sb.from('historical_prices')
-      .select('d,o,h,l,c,v').eq('symbol', sym).order('d', { ascending: true });
+      .select('d,o,h,l,c,v').eq('symbol', sym)
+      .order('d', { ascending: false }).limit(1000);   // الأحدث أولاً (يشمل اليوم ضمن سقف 1000)
     if (error || !data || data.length < 2) return;
     /* صيغة الصف المتوقّعة: [sym, date, close, vol, _, _, open, high, low] */
     histDailyRawCache[sym] = data.map(r => [sym, r.d, +r.c, +r.v || 0, null, null, +r.o, +r.h, +r.l]);
@@ -11450,8 +11762,10 @@ function histRenderCandles(dataRows, tab, isSim) {
   if (isSim || typeof LightweightCharts === 'undefined') { box.style.display = 'none'; return; }
 
   const built = histCandleBuild(dataRows, tab);
-  /* 🕯️ لا توجد شموع (بيانات بلا OHLC) → اجلب OHLC كاملاً من القاعدة مرة واحدة وأعد الرسم */
-  if ((!built || built.mode !== 'candles') && histCurrentSym && !_histDbTried.has(histCurrentSym)) {
+  /* 🕯️ القاعدة (historical_prices) هي المصدر الموثوق للأسعار وتُحدَّث يومياً.
+     نجلب منها OHLC مرة واحدة لكل رمز ونستبدل بها الكاش المحلي (شرائح الشيت) الذي
+     قد يكون قديماً فيُظهر سعر الشارت مختلفاً عن السعر الحيّ والبطاقة. */
+  if (histCurrentSym && !_histDbTried.has(histCurrentSym)) {
     _histDbTried.add(histCurrentSym);
     histUpgradeFromDB(histCurrentSym, tab);
   }
