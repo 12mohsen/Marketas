@@ -1963,7 +1963,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-16-v113 — 🔄 مسح الرادار تلقائي عند فتح الأدمن (يحدّث للجميع بلا زر) + يدوي متاح · نتائج موحّدة · كاش سهمك دائم · مخاطرة/عائد', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-17-v116 — 🌐 «تحليل السوق» موحّد (يُرفع حتى من الكاش) + الرادار موحّد + شيت احتياطي لو غاب الأدمن · كاش سهمك · مخاطرة/عائد', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -9103,19 +9103,16 @@ document.addEventListener('keydown', e => {
     if (typeof isAdmin === 'function' && isAdmin()) predRecordSnapshot();
     /* 🌐 حمّل النتائج المشتركة الموحّدة أولاً؛ إن لم تتوفّر → مسح محلي احتياطي (كما كان) */
     radarLoadShared().then(loaded => {
-      const isAdm = typeof isAdmin === 'function' && isAdmin();
-      /* 🔄 تلقائي للأدمن: إن كانت النتائج المشتركة قديمة (قبل آخر إغلاق سوق) أعد المسح وارفعها للجميع بلا ضغط زر */
-      if (isAdm && !PRED_AUTORAN && !predIsFresh() && !predIsMarketOpen() && Array.isArray(rows) && rows.length) {
+      /* 🛡️ شبكة أمان: إن كانت النتائج (المشتركة أو المحلية) قديمة والسوق مغلق → امسح طازجاً تلقائياً.
+         فلو غاب الأدمن، لا يتوقّف أي مستخدم على بيانات قديمة — كل جهاز يمسح محلياً (طازج)،
+         والأدمن يرفعها للجميع (radarUploadShared يتحقّق من الأدمن). لا أحد «يتورّط». */
+      if (!PRED_AUTORAN && !predIsFresh() && !predIsMarketOpen() && Array.isArray(rows) && rows.length) {
         PRED_AUTORAN = true;
         predScanAll();
         return;
       }
-      if (loaded) return;
-      /* مستخدم عادي بلا نتائج مشتركة → مسح محلي احتياطي (كما كان) */
-      if (!PRED_AUTORAN && !predIsFresh() && !predIsMarketOpen() && Array.isArray(rows) && rows.length) {
-        PRED_AUTORAN = true;
-        predScanAll();
-      } else if (!predIsFresh() && typeof showToast === 'function') {
+      if (loaded) return;   // نتائج مشتركة حديثة → استخدمها كما هي (موحّدة)
+      if (!predIsFresh() && typeof showToast === 'function') {
         showToast(PRED_RESULTS.length
           ? '⚠️ بيانات المتنبئ قديمة — اضغط «إعادة المسح» للتحديث'
           : '🔮 اضغط «مسح الانفجارات» لتحديث المتنبئ');
@@ -9658,12 +9655,41 @@ function histParseDailyRows(parsed) {
   return Object.keys(bySymbol).length > 0 ? bySymbol : null;
 }
 
+const ANALYSIS_SHARED_TTL = 18 * 60 * 60 * 1000;   // 18 ساعة (البيانات اليومية تتغيّر مرة/يوم)
+/* 🌐 يقرأ البيانات اليومية المشتركة (الموحّدة) — يُرجع {bySymbol,...} أو null (فيُحمَّل من الشيت محلياً) */
+async function analysisLoadShared() {
+  if (typeof sb === 'undefined' || !sb) return null;
+  try {
+    const { data, error } = await sb.from('analysis_daily').select('data, updated_at').eq('id', 1).maybeSingle();
+    if (error || !data || !data.data) return null;
+    const age = data.updated_at ? (Date.now() - new Date(data.updated_at).getTime()) : Infinity;
+    if (age > ANALYSIS_SHARED_TTL) return null;   // 🛡️ قديمة → شبكة الأمان: تحميل محلي من الشيت
+    const bySymbol = data.data;
+    if (!bySymbol || typeof bySymbol !== 'object' || !Object.keys(bySymbol).length) return null;
+    console.info('[analysis] ✓ بيانات يومية مشتركة موحّدة:', Object.keys(bySymbol).length, 'سهم');
+    return { bySymbol, fetchedAt: Date.now() };
+  } catch (e) { return null; }
+}
+/* 🌐 يرفع البيانات اليومية للجدول المشترك (الأدمن فقط) → يقرأها الجميع موحّدة */
+async function analysisUploadShared() {
+  if (typeof sb === 'undefined' || !sb) return;
+  if (!(typeof isAdmin === 'function' && isAdmin())) return;
+  if (!histAllDailyCache || !histAllDailyCache.bySymbol || !Object.keys(histAllDailyCache.bySymbol).length) return;
+  try {
+    await sb.from('analysis_daily').upsert({ id: 1, data: histAllDailyCache.bySymbol, updated_at: new Date().toISOString() });
+    console.info('[analysis] ✓ رُفعت البيانات اليومية المشتركة للجميع');
+  } catch (e) { console.warn('[analysis] رفع البيانات المشتركة تعذّر:', e && e.message); }
+}
+
 async function histLoadAllDaily() {
-  if (histAllDailyCache) return histAllDailyCache;
+  if (histAllDailyCache) { try { analysisUploadShared(); } catch (e) {} return histAllDailyCache; }  // 🌐 ارفع للجميع حتى لو من الكاش (أدمن)
   if (histAllDailyPromise) return histAllDailyPromise;
 
   histAllDailyPromise = (async () => {
     try {
+      /* 🌐 البيانات المشتركة الموحّدة أولاً (رفعها الأدمن) — شبكة أمان: لو قديمة/غائبة نحمّل من الشيت */
+      const _shared = await analysisLoadShared();
+      if (_shared) { histAllDailyCache = _shared; histSaveToStorage(histAllDailyCache); return histAllDailyCache; }
       /* نجرّب: الرابط الأساسي (بدون sheet=) ثم كل شرايح Daily1..6 المحتملة.
          كل شريحة موجودة فعلياً تُدمج؛ غير الموجودة تُتجاهل بصمت. */
       const shardCandidates = [...HIST_DAILY_SHARD_NAMES];
@@ -9724,6 +9750,7 @@ async function histLoadAllDaily() {
 
       histAllDailyCache = { bySymbol, fetchedAt: Date.now() };
       histSaveToStorage(histAllDailyCache);
+      analysisUploadShared();   // 🌐 أدمن → ارفع البيانات الموحّدة للجميع
       return histAllDailyCache;
     } catch (e) {
       console.warn('[histLoadAllDaily] failed:', e.message);
