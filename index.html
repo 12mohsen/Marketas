@@ -1963,7 +1963,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-16-v110 — ⚖️ مؤشّر مخاطرة/عائد لكل صف في الرادار (مقارنة بلا فتح) · إشارة موحّدة + فلتر «جاهز» · الزوايا الزمنية · بداية الدورة · نجح/لم ينجح', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-16-v111 — 💾 كاش سهمك دائم (localStorage · 15د) يقلّل الطلبات ويبقى بعد التحديث · مؤشّر مخاطرة/عائد · إشارة موحّدة · الزوايا الزمنية · نجح/لم ينجح', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -6137,14 +6137,27 @@ async function tryAllSources() {
    ═══════════════════════════════════════════════════════════════════ */
 
 const SAHMK_BATCH = 50;              // عدد الرموز لكل طلب /quotes
-const _sahmkMem = new Map();         // كاش خفيف داخل المتصفح (5 دقائق)
+const _sahmkMem = new Map();          // كاش سهمك داخل المتصفح
+const _SAHMK_LS  = 'sahmk_cache_v1';
+const _SAHMK_TTL = 15 * 60 * 1000;    // 15 دقيقة (الأسعار متأخرة ~15د أصلاً)
+/* 💾 كاش دائم يبقى بعد تحديث الصفحة (مهمّ مع _headers الذي يُعيد التحميل) → يقلّل طلبات سهمك كثيراً */
+(function () {
+  try {
+    const raw = localStorage.getItem(_SAHMK_LS);
+    if (raw) { const o = JSON.parse(raw), now = Date.now();
+      for (const k in o) if (o[k] && (now - o[k].t) < _SAHMK_TTL) _sahmkMem.set(k, o[k]); }
+  } catch (e) {}
+})();
+function _sahmkPersist() {
+  try { const o = {}; for (const [k, v] of _sahmkMem) o[k] = v; localStorage.setItem(_SAHMK_LS, JSON.stringify(o)); } catch (e) {}
+}
 
 // نداء عام لأي نقطة عبر الوسيط، مع معالجة الأخطاء وكاش الذاكرة
 async function sahmkApi(path, params = {}) {
   const qs  = new URLSearchParams(params).toString();
   const url = SAHMK_WORKER_BASE + path + (qs ? '?' + qs : '');
   const c = _sahmkMem.get(url);
-  if (c && Date.now() - c.t < 5 * 60 * 1000) return c.d;
+  if (c && Date.now() - c.t < _SAHMK_TTL) return c.d;
 
   const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
   let d;
@@ -6157,6 +6170,7 @@ async function sahmkApi(path, params = {}) {
     throw new Error('sahmk ' + code + ': ' + msg);
   }
   _sahmkMem.set(url, { t: Date.now(), d });
+  _sahmkPersist();
   return d;
 }
 
@@ -9994,7 +10008,7 @@ function _autoPriceRefresh() {
     const marketOpen = (wd >= 0 && wd <= 4) && mins >= 600 && mins < 910;  // 10:00–15:10
     if (!marketOpen) return;                                      // خارج ساعات التداول — الأسعار ثابتة
     // نظّف كاش عروض الأسعار حتى يجلب أرقاماً جديدة فعلاً (بدل الكاش 5 دقائق)
-    try { if (typeof _sahmkMem !== 'undefined') for (const k of [..._sahmkMem.keys()]) if (/quote/i.test(k)) _sahmkMem.delete(k); } catch (_) {}
+    try { if (typeof _sahmkMem !== 'undefined') { for (const k of [..._sahmkMem.keys()]) if (/quote/i.test(k)) _sahmkMem.delete(k); if (typeof _sahmkPersist === 'function') _sahmkPersist(); } } catch (_) {}
     loadCSV();
   } catch (e) { /* تجاهل */ }
 }
