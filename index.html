@@ -1963,7 +1963,7 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-console.log('%c[تداول بلس] البناء: 2026-07-17-v116 — 🌐 «تحليل السوق» موحّد (يُرفع حتى من الكاش) + الرادار موحّد + شيت احتياطي لو غاب الأدمن · كاش سهمك · مخاطرة/عائد', 'color:#7c3aed;font-weight:bold;font-size:14px');
+console.log('%c[تداول بلس] البناء: 2026-07-17-v117 — 🔒 إخفاء إحصائيات الدقّة يصل للمستخدمين فوراً (مزامنة) · «تحليل السوق» والرادار موحّدان · كاش سهمك · مخاطرة/عائد', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -3230,6 +3230,8 @@ function applyAppSettings() {
   /* 🔄 أعِد تطبيق تظليل «الأهداف/وقف الخسارة» بعد تحميل القيود/الإعدادات
      (يمنع اختفاء التظليل عند تحديث الصفحة) */
   _reapplyLockShading();
+  /* 🔒 طبّق فوراً إظهار/إخفاء إحصائيات الدقّة حسب إعداد الأدمن (يصل للمستخدمين خلال المزامنة) */
+  try { if (typeof predRefreshStatsVisibility === 'function') predRefreshStatsVisibility(); } catch (e) {}
 }
 
 /* بوابة الدخول/الصيانة */
@@ -9175,6 +9177,7 @@ document.addEventListener('keydown', e => {
   window.predScanAll = predScanAll;
   window.predSetFilter = predSetFilter;
   window.predToggleUserStats = predToggleUserStats;
+  window.predRefreshStatsVisibility = predUpdateStatsChips;   // 🔒 ليطبّق إخفاء/إظهار الإحصائيات فوراً عند مزامنة الإعدادات
   window.predInit = predInit;
   window.predSearch = function (v) { PRED_SEARCH = v || ''; predRender(); };
   // 🔬 التحليل الكامل (بيانات السوق + التقييم الفني + الأهداف) — من زر داخل نافذة التنبؤ
