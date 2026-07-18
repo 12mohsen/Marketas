@@ -1979,8 +1979,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-18-v144';
-console.log('%c[تداول بلس] البناء: 2026-07-18-v144 — ⚙️ مسح تلقائي بالكامل: يعيد الحساب ويرفع للجميع تلقائياً عند تغيّر الإصدار أو قِدم البيانات (بلا أزرار يدوية) · الدائرة الرقمية + مستويات جان', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-18-v145';
+console.log('%c[تداول بلس] البناء: 2026-07-18-v145 — 🌱 وسم «سهم حديث · تاريخ غير كافٍ» على الإدراجات الجديدة في القنّاص (تُدفَع لأسفل القائمة وتُنبَّه صراحةً) · مسح تلقائي · الدائرة الرقمية + جان', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -8951,6 +8951,7 @@ document.addEventListener('keydown', e => {
               try { a.elTime = _timeWindow(candles); } catch (e) {}
               try { a.elGann = _gannLevels(candles, a.price); } catch (e) {}
               try { a.elCircle = _digitalCircle(candles, a.price); } catch (e) {}
+              try { a.bars = Array.isArray(candles) ? candles.length : 0; } catch (e) {}   // عمق التاريخ (لوسم السهم الحديث)
               PRED_RESULTS.push(a); ok++;
             }
           }
@@ -9447,7 +9448,10 @@ document.addEventListener('keydown', e => {
       !!(r.elTrig && r.elTrig.dir === 'bull')                     // 🕯️ الزناد
     ];
     const _snCount = r => _snParts(r).filter(Boolean).length;
-    list.sort((a, b) => _snCount(b) - _snCount(a) ||
+    const _snYoung = r => !!(r.bars && r.bars < 240);   // أقل من ~سنة تداول → تاريخ غير كافٍ
+    list.sort((a, b) =>
+      ((_snYoung(a) ? 1 : 0) - (_snYoung(b) ? 1 : 0)) ||        // 🌱 الأسهم الحديثة دائماً للأسفل (إشاراتها ضعيفة)
+      _snCount(b) - _snCount(a) ||
       ((b.elTrig && b.elTrig.dir === 'bull' ? 1 : 0) - (a.elTrig && a.elTrig.dir === 'bull' ? 1 : 0)) ||
       ((_snTimeActive(b) ? 1 : 0) - (_snTimeActive(a) ? 1 : 0)) ||
       (b.elPlan.rr || 0) - (a.elPlan.rr || 0) || (b.elConf || 0) - (a.elConf || 0));
@@ -9486,6 +9490,7 @@ document.addEventListener('keydown', e => {
         (function () {
           let b = '';
           const chip = (bg, bd, fg, txt) => '<span style="background:' + bg + ';border:1px solid ' + bd + ';color:' + fg + ';border-radius:20px;padding:4px 11px;font-size:12px;font-weight:700;white-space:nowrap">' + txt + '</span>';
+          if (r.bars && r.bars < 240) b += chip('rgba(251,146,60,.15)', 'rgba(251,146,60,.5)', '#fb923c', '🌱 سهم حديث · ' + r.bars + ' شمعة — تاريخ غير كافٍ، إشارات أقل موثوقية');
           if (r.elTrig) {
             if (r.elTrig.dir === 'bull') b += chip('rgba(34,197,94,.14)', 'rgba(34,197,94,.4)', '#4ade80', '🕯️ زناد صعودي: ' + r.elTrig.name + (r.elTrig.strong ? ' 💪' : ''));
             else b += chip('rgba(248,113,113,.12)', 'rgba(248,113,113,.4)', '#f87171', '⚠️ زناد هبوطي: ' + r.elTrig.name);
