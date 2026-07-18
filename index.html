@@ -1980,8 +1980,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-18-v148';
-console.log('%c[تداول بلس] البناء: 2026-07-18-v148 — 🎯 أهداف متدرّجة (هدف 1/2/نهائي بفيبوناتشي + نسبة لكل هدف) و⚖️ عائد/مخاطرة عند السعر الحالي بجانب المثالي في القنّاص — خطة واقعية بلا حساب يدوي', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-18-v150';
+console.log('%c[تداول بلس] البناء: 2026-07-18-v150 — 🎯 مُعايِر النجاح (بلا بايثون): نسبة نجاح فعلية من تاريخك حسب درجة التوافق (تتراكم) أو الاحتمال (فوراً) — تحوّل مقياس التوافق من رأي إلى احتمال مُعاير', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -8580,10 +8580,15 @@ document.addEventListener('keydown', e => {
         target_pct: r.targetPct,
         target_price: +(+r.price * (1 + r.targetPct / 100)).toFixed(2),
         days_to_target: r.daysToTarget || 5,
+        confl: (typeof _snConflCount === 'function') ? _snConflCount(r) : null,   // درجة التوافق (للمعايرة)
       }));
     if (!rows.length) return;
     try { await sb.from('predictions').upsert(rows, { onConflict: 'symbol,pred_date' }); }
-    catch (e) { console.warn('[pred] تعذّر تسجيل التنبؤات:', e && e.message); }
+    catch (e) {
+      /* عمود confl قد لا يكون مضافاً بعد → أعد الرفع بدونه حتى لا يتعطّل التسجيل */
+      try { await sb.from('predictions').upsert(rows.map(({ confl, ...rest }) => rest), { onConflict: 'symbol,pred_date' }); }
+      catch (e2) { console.warn('[pred] تعذّر تسجيل التنبؤات:', e2 && e2.message); }
+    }
   }
   async function predLoadOutcomes() {
     if (!sb) return;
@@ -8625,6 +8630,16 @@ document.addEventListener('keydown', e => {
       Object.keys(bk).forEach(k => { const b = bk[k]; const d = b.s + b.f; b.rate = d ? Math.round(b.s / d * 100) : null; });
       _predStats.byProb = bk;
       _predStats.avgDays = daysN ? Math.round(daysSum / daysN * 10) / 10 : null;
+      /* 🎯 معايرة النجاح حسب درجة التوافق (تتراكم مع الأيام مع تسجيل confl) */
+      const bc = {};
+      _predOutcomes.forEach(p => {
+        if ((p.outcome !== 'success' && p.outcome !== 'fail') || p.confl == null) return;
+        const k = String(p.confl);
+        (bc[k] = bc[k] || { s: 0, f: 0 });
+        if (p.outcome === 'success') bc[k].s++; else bc[k].f++;
+      });
+      Object.keys(bc).forEach(k => { const b = bc[k]; const d = b.s + b.f; b.rate = d ? Math.round(b.s / d * 100) : null; });
+      _predStats.byConfl = bc;
     } catch (e) { _predOutcomes = []; }
   }
   function predUpdateStatsChips() {
@@ -8953,6 +8968,7 @@ document.addEventListener('keydown', e => {
               try { a.elGann = _gannLevels(candles, a.price); } catch (e) {}
               try { a.elCircle = _digitalCircle(candles, a.price); } catch (e) {}
               try { a.bars = Array.isArray(candles) ? candles.length : 0; } catch (e) {}   // عمق التاريخ (لوسم السهم الحديث)
+              try { const _f = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.find(x => x.sym === r.sym) : null; if (_f && _f.eps != null) a.eps = _f.eps; } catch (e) {}   // EPS لقيمة جراهام
               PRED_RESULTS.push(a); ok++;
             }
           }
@@ -9363,6 +9379,31 @@ document.addEventListener('keydown', e => {
     return names[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
   }
   const _snTimeActive = r => !!(r.elTime && r.elTime.barsFromNow <= 1 && r.elTime.barsFromNow >= -2);
+  /* 🧩 عناصر التوافق الخمسة وعدّها — على مستوى الوحدة ليستخدمها القنّاص وتسجيل المعايرة معاً */
+  function _snConflParts(r) {
+    return [
+      true,                                                     // 🌊 إليوت
+      !!(r.elConfl || (r.elGann && r.elGann.near)),             // 🔢 مربع 9 / جان
+      !!(r.elHarm && r.elHarm.dir === 'bull'),                  // 🦋 هرمونيك
+      !!(r.elZone && r.elZone.inDemand),                        // 📦 عرض/طلب
+      !!(r.elTrig && r.elTrig.dir === 'bull')                   // 🕯️ زناد
+    ];
+  }
+  function _snConflCount(r) { return _snConflParts(r).filter(Boolean).length; }
+  /* 🎯 معايرة النجاح: نسبة نجاح فعلية من تاريخك — حسب درجة التوافق (تتراكم) أو الاحتمال (متوفّرة الآن) */
+  function snCalib(r, cN) {
+    const MIN = 8;   // حدّ أدنى من الحالات المكتملة حتى نثق بالنسبة
+    const bc = _predStats && _predStats.byConfl;
+    if (bc && bc[cN] && (bc[cN].s + bc[cN].f) >= MIN && bc[cN].rate != null)
+      return { rate: bc[cN].rate, n: bc[cN].s + bc[cN].f, basis: 'توافق ' + cN + '/5' };
+    const bp = _predStats && _predStats.byProb;
+    if (bp && r.probability != null) {
+      const key = r.probability >= 90 ? '90' : r.probability >= 80 ? '80' : '70';
+      if (bp[key] && (bp[key].s + bp[key].f) >= MIN && bp[key].rate != null)
+        return { rate: bp[key].rate, n: bp[key].s + bp[key].f, basis: 'ثقة ~' + key + '%' };
+    }
+    return null;
+  }
   let SNIPER_SEARCH = '';
   /* 🔤 تطبيع عربي للبحث: يوحّد الهمزات والتاء المربوطة والألف المقصورة، ويحذف التشكيل والشرطة والمسافات */
   function _arNorm(s) {
@@ -9456,15 +9497,8 @@ document.addEventListener('keydown', e => {
       const q = _arNorm(SNIPER_SEARCH);
       if (q) list = list.filter(r => _arNorm(r.sym).includes(q) || _arNorm(r.name).includes(q));
     }
-    /* 🧩 عنقود التوافق: كم مدرسة تتفق (إليوت + مربع9 + هرمونيك + عرض/طلب + زناد) من 5 */
-    const _snParts = r => [
-      true,                                                       // 🌊 إليوت (خطة دخول قائمة)
-      !!(r.elConfl || (r.elGann && r.elGann.near)),               // 🔢 مربع التسعة / مستوى جان الزاوي الدقيق
-      !!(r.elHarm && r.elHarm.dir === 'bull'),                    // 🦋 الهرمونيك
-      !!(r.elZone && r.elZone.inDemand),                          // 📦 العرض/الطلب
-      !!(r.elTrig && r.elTrig.dir === 'bull')                     // 🕯️ الزناد
-    ];
-    const _snCount = r => _snParts(r).filter(Boolean).length;
+    /* 🧩 عنقود التوافق: كم مدرسة تتفق (معرّفة على مستوى الوحدة _snConflCount) */
+    const _snCount = _snConflCount;
     const _snYoung = r => !!(r.bars && r.bars < 240);   // أقل من ~سنة تداول → تاريخ غير كافٍ
     list.sort((a, b) =>
       ((_snYoung(a) ? 1 : 0) - (_snYoung(b) ? 1 : 0)) ||        // 🌱 الأسهم الحديثة دائماً للأسفل (إشاراتها ضعيفة)
@@ -9540,6 +9574,12 @@ document.addEventListener('keydown', e => {
           }
           if (r.elZone && r.elZone.inDemand) b += chip('rgba(56,189,248,.14)', 'rgba(56,189,248,.4)', '#38bdf8', '📦 داخل منطقة طلب');
           else if (r.elZone && r.elZone.inSupply) b += chip('rgba(245,158,11,.14)', 'rgba(245,158,11,.4)', '#fbbf24', '📦 قرب منطقة عرض');
+          if (typeof grahamValue === 'function') {
+            const _gr = grahamValue(r.eps, r.price);
+            if (_gr) b += chip('rgba(148,163,184,.1)', 'rgba(148,163,184,.32)', _gr.color, '💰 جراهام: ' + _gr.verdict + ' · عادلة ' + _gr.fair + ' · هامش ' + (_gr.mos >= 0 ? '+' : '') + _gr.mos + '%');
+          }
+          const _cal = snCalib(r, _snCount(r));
+          if (_cal) b += chip('rgba(124,58,237,.14)', 'rgba(124,58,237,.45)', '#a855f7', '🎯 معايرة: ' + _cal.basis + ' نجح تاريخياً ' + _cal.rate + '% (' + _cal.n + ' حالة)');
           if (r.elTime) {
             const bn = r.elTime.barsFromNow, q = r.elTime.quality;
             if (bn <= 1 && bn >= -2) b += chip('rgba(34,197,94,.16)', 'rgba(34,197,94,.5)', '#4ade80', '🕐 نافذة زمنية نشطة الآن' + (q !== 'منخفضة' ? ' · جودة ' + q : ''));
@@ -10928,6 +10968,22 @@ function gannSquare9(price, dir) {
   const s = dir === 'down' ? -1 : 1;
   const lvl = rot => +(Math.pow(Math.max(0.0001, sq + s * rot), 2) / scale).toFixed(2);
   return { N, dir, half: lvl(1), one: lvl(2), balance: lvl(2 * N) };
+}
+/* 💰 قيمة جراهام (نسخة مبسّطة على الأرباح — نفتقر للقيمة الدفترية على الباقة المجانية):
+   القيمة العادلة الدفاعية = EPS × 15 (أقصى مكرر يقبله المستثمر الدفاعي عند جراهام)،
+   والقيمة المتحفّظة (بلا نمو) = EPS × 8.5. تُعطي بُعداً أساسياً مقابل التحليل الفني.
+   ملاحظة صادقة: إضافة القيمة الدفترية (متاحة في البيانات المدفوعة) تُدقّقها أكثر. */
+function grahamValue(eps, price) {
+  const e = toNum(eps), p = toNum(price);
+  if (!e || e <= 0 || !p || p <= 0) return null;   // خسائر/بلا أرباح → لا تنطبق
+  const conservative = +(e * 8.5).toFixed(2);
+  const fair = +(e * 15).toFixed(2);
+  const mos = +(((fair - p) / p) * 100).toFixed(1);   // هامش الأمان مقابل العادلة
+  let verdict, color;
+  if (p <= conservative) { verdict = 'رخيص'; color = '#4ade80'; }
+  else if (p <= fair)    { verdict = 'قيمة عادلة'; color = '#38bdf8'; }
+  else                   { verdict = 'غالٍ'; color = '#f87171'; }
+  return { conservative: conservative, fair: fair, mos: mos, verdict: verdict, color: color };
 }
 /* 🎯 معايرة نِسب إليوت من تاريخ السهم نفسه (بدل النِّسب النظرية الثابتة التي تُبالغ).
    يقيس متوسط ارتداد/امتداد كل موجة عبر دورات السهم السابقة → نِسب واقعية لهذا السهم. */
