@@ -1998,8 +1998,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-18-v172';
-console.log('%c[تداول بلس] البناء: 2026-07-18-v172 — 💡 تغذية راجعة موحّدة لكل أزرار الحفظ (الإعدادات · الحساب البنكي · أسعار الخدمات): ⏳ جارٍ → ✅ تم / ⚠️ فشل بألوان واضحة', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-18-v175';
+console.log('%c[تداول بلس] البناء: 2026-07-18-v175 — 👑 رسالة التعديل تذكر مَن نفّذه (أدمن/مشرف + بريده) وعلى مَن، مع ما تغيّر فقط — ومعها إصلاح تكرار رسائل notify-new-users', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -5663,6 +5663,38 @@ async function adminSaveUser() {
   });
   const { error } = await sb.from('user_restrictions').upsert(rows);
   if (error) { _admErr(error, 'فشل الحفظ'); return; }
+  /* 📨 تنبيه تلجرام — «ما نُفِّذ فقط»: يقارن بالحالة السابقة قبل تحديثها محلياً.
+     لا تغيير = لا رسالة. وفي التعديل الجماعي يُرسل ملخّص واحد. */
+  try {
+    if (typeof window.tgNotify === 'function') {
+      const nm = k => { const d = ADMIN_TAB_DEFS.find(t => t.k === k); return d ? d.t : k; };
+      const diffs = rows.map(r => {
+        const old = _admRestr[r.email] || {};
+        const pH = old.hidden_tabs || [], nH = r.hidden_tabs || [];
+        return {
+          email: r.email,
+          opened: pH.filter(k => nH.indexOf(k) < 0).map(nm),
+          closed: nH.filter(k => pH.indexOf(k) < 0).map(nm),
+          blockChg: (!!old.blocked !== !!r.blocked) ? (r.blocked ? '⛔ أُوقف الحساب' : '✅ رُفع الإيقاف') : '',
+        };
+      }).filter(d => d.opened.length || d.closed.length || d.blockChg);
+      if (diffs.length) {
+        /* 👑/🛡️ مَن نفّذ التعديل — أدمن رئيسي أم مشرف، وبريده */
+        const _who = (typeof sbUser !== 'undefined' && sbUser && sbUser.email) ? sbUser.email : '—';
+        const _role = (typeof isSuperAdmin === 'function' && isSuperAdmin()) ? '👑 أدمن' : '🛡️ مشرف';
+        const head = _role + ': ' + _who + '\n';
+        const line = d => (d.opened.length ? '\n✅ فُتح: ' + d.opened.join(' · ') : '') +
+                          (d.closed.length ? '\n🚫 أُغلق: ' + d.closed.join(' · ') : '') +
+                          (d.blockChg ? '\n' + d.blockChg : '');
+        if (diffs.length === 1) {
+          window.tgNotify('⚙️ <b>تعديل صلاحيات</b>\n' + head + '🎯 على: ' + diffs[0].email + line(diffs[0]));
+        } else {
+          window.tgNotify('⚙️ <b>تعديل صلاحيات جماعي</b>\n' + head + '👥 ' + diffs.length + ' مستخدم' + line(diffs[0]) +
+            '\n\n' + diffs.slice(0, 8).map(d => '• ' + d.email).join('\n') + (diffs.length > 8 ? '\n…' : ''));
+        }
+      }
+    }
+  } catch (e) {}
   rows.forEach(r => { _admRestr[r.email] = r; });
   (function(){
     const paidSecs = SUB_SECTION_DEFS.filter(d => secIn[d.k] && secIn[d.k].plan === 'paid').map(d => d.t.replace(/^\S+\s/, ''));
@@ -10038,6 +10070,8 @@ document.addEventListener('keydown', e => {
       if (s) { s.style.color = '#4ade80'; s.textContent = '✅ وُجد: ' + ids.map(x => x.id + (x.name ? ' (' + x.name + ')' : '')).join(' · ') + ' — عبّأتُ الأخير، اضغط حفظ'; }
     } catch (e) { if (s) { s.style.color = '#f87171'; s.textContent = '⚠️ ' + ((e && e.message) || 'خطأ شبكة'); } }
   };
+  /* 📨 إرسال رسالة تلجرام من أي مكان في التطبيق (يستخدم إعداد الأدمن المحفوظ) */
+  window.tgNotify = async function (text) { try { return await tgSend(text); } catch (e) { return { ok: false }; } };
   window.tgTest = async function () {
     window.tgSaveSettings();
     const s = document.getElementById('tgStatus'); if (s) { s.style.color = 'var(--txt-m)'; s.textContent = '⏳ جارٍ إرسال رسالة اختبار…'; }
@@ -13437,10 +13471,18 @@ async function supportSend() {
      المسجّل يرى الرد في «رسائلي»، والزائر يُرَد عليه عبر الإيميل */
   if (sb) {
     const finalEmail = (sbUser && sbUser.email) ? sbUser.email : email;
+    /* 🧩 أرفِق اسم القسم الذي جاء منه الطلب — ليظهر في لوحة الأدمن وفي رسالة تلجرام */
+    let _secTag = '';
+    try {
+      const k = (typeof _currentTabKey === 'function') ? _currentTabKey() : '';
+      const d = (k && typeof ADMIN_TAB_DEFS !== 'undefined') ? ADMIN_TAB_DEFS.find(t => t.k === k) : null;
+      if (d) _secTag = '[القسم: ' + d.t + ']\n';
+      else if (k === 'home') _secTag = '[القسم: 🏠 الرئيسية]\n';
+    } catch (e) {}
     const { error } = await sb.from('support_requests').insert({
       email: finalEmail,
       req_type: reqType,
-      subject: subject + (sbUser ? '' : '\n(زائر بلا حساب — الرد عبر الإيميل)'),
+      subject: _secTag + subject + (sbUser ? '' : '\n(زائر بلا حساب — الرد عبر الإيميل)'),
     });
     if (error) {
       console.warn('[support] insert failed:', error.message);
