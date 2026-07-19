@@ -1590,9 +1590,10 @@ canvas#mdChart{display:block;width:100% !important}
     <input id="returnsSearch" class="pf-search-inp" type="text"
            placeholder="ابحث عن شركة أو رمز..." oninput="renderReturnsFilter()">
   </div>
-  <div style="max-width:1100px;margin:0 auto 12px;text-align:center">
-    <button id="divScanBtn" onclick="divScanAll(this)" style="background:linear-gradient(135deg,#166534,#22c55e);border:none;color:#fff;border-radius:10px;padding:11px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;transition:all .2s">🔍 فحص شامل للتوزيعات (تواريخ حقيقية)</button>
-    <div id="divScanNote" style="font-size:11px;color:var(--txt-m);margin-top:7px;line-height:1.7">يجلب <b>التوزيعات الفعلية</b> لكل شركة (تاريخ ومبلغ آخر توزيع)، ويستبعد مَن توقّف عن التوزيع أكثر من 18 شهراً.</div>
+  <div id="divScanBox" style="display:none;max-width:1100px;margin:0 auto 12px;text-align:center">
+    <button id="divScanBtn" onclick="divScanAll(this)" style="background:linear-gradient(135deg,#166534,#22c55e);border:none;color:#fff;border-radius:10px;padding:11px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;transition:all .2s">🔍 فحص شامل للتوزيعات (أدمن)</button>
+    <div id="divScanStamp" style="font-size:11.5px;margin-top:7px;line-height:1.8;font-weight:700"></div>
+    <div id="divScanNote" style="font-size:11px;color:var(--txt-m);margin-top:5px;line-height:1.7">يجلب <b>التوزيعات الفعلية</b> (تاريخ ومبلغ آخر توزيع) <b>ويرفعها لكل المستخدمين</b>. يُحدَّث تلقائياً كل 7 أيام عند فتحك التطبيق.</div>
   </div>
   <div id="returnsContent">
     <div class="coming-soon">
@@ -2052,8 +2053,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-19-v187';
-console.log('%c[تداول بلس] البناء: 2026-07-19-v187 — 🗓️ «المفكرة» في الرئيسية: شريط أحداث التوزيعات الحديثة (اسم · صرف أرباح · مبلغ · تاريخ) بزر تبديل ⇄ مع الأسعار، وتحكّم إظهارها من لوحة الأدمن', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-19-v189';
+console.log('%c[تداول بلس] البناء: 2026-07-19-v189 — 🕒 سطر «آخر تحديث» للأدمن في قسم العوائد: التاريخ والوقت وكم مضى وعدد الأسهم، مع تنبيه إن قدُمت البيانات', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -5188,8 +5189,73 @@ async function divFetchYahoo(sym) {
   return null;
 }
 
-/* 🔍 مسح شامل: يفحص توزيعات كل الشركات المعروضة ويحفظ النتائج */
+/* 🕒 يعرض للأدمن آخر تحديث للتوزيعات (تاريخ · وقت · كم مضى · عدد الأسهم) */
+function divUpdateStamp() {
+  const el = document.getElementById('divScanStamp');
+  if (!el) return;
+  const raw = (typeof DIV_HISTORY !== 'undefined' && DIV_HISTORY) ? DIV_HISTORY._scannedAt : null;
+  const at = raw ? new Date(raw) : null;
+  if (!at || isNaN(at.getTime())) {
+    el.style.color = '#fbbf24';
+    el.innerHTML = '⚠️ لم يُجرَ فحص بعد — اضغط الزر أعلاه لأول مرة';
+    return;
+  }
+  const p = n => String(n).padStart(2, '0');
+  const dd = p(at.getDate()) + '/' + p(at.getMonth() + 1) + '/' + at.getFullYear();
+  const tt = p(at.getHours()) + ':' + p(at.getMinutes());
+  const days = (Date.now() - at.getTime()) / 86400000;
+  const ago = days < 0.04 ? 'قبل دقائق' : days < 1 ? 'اليوم' : days < 2 ? 'أمس' : 'قبل ' + Math.floor(days) + ' يوماً';
+  const count = Object.keys(DIV_HISTORY).filter(k => k !== '_scannedAt').length;
+  const stale = days > 7;
+  el.style.color = stale ? '#fbbf24' : '#4ade80';
+  el.innerHTML = (stale ? '⚠️' : '✅') + ' آخر تحديث: <b>' + dd + '</b> · <b>' + tt + '</b> (' + ago + ') · ' +
+    count + ' سهم' + (stale ? ' — <span style="color:#fbbf24">قديم، سيُحدَّث تلقائياً عند الفتح</span>' : '');
+}
+
+/* 🌐 مشاركة التوزيعات: الأدمن يفحص ويرفع، والجميع يقرأ نتيجة موحّدة */
+async function divUploadShared() {
+  if (typeof sb === 'undefined' || !sb) return;
+  if (!(typeof isAdmin === 'function' && isAdmin())) return;
+  try {
+    await sb.from('dividends_shared').upsert({ id: 1, data: DIV_HISTORY, updated_at: new Date().toISOString() });
+    console.info('[div] ✓ رُفعت بيانات التوزيعات للجميع');
+  } catch (e) { console.warn('[div] رفع التوزيعات تعذّر:', e && e.message); }
+}
+async function divLoadShared() {
+  if (typeof sb === 'undefined' || !sb) return false;
+  try {
+    const { data, error } = await sb.from('dividends_shared').select('data, updated_at').eq('id', 1).maybeSingle();
+    if (error || !data || !data.data) return false;
+    DIV_HISTORY = data.data;
+    DIV_HISTORY._scannedAt = data.updated_at;
+    try { localStorage.setItem(DIV_CACHE_KEY, JSON.stringify(DIV_HISTORY)); } catch (e) {}
+    console.info('[div] ✓ توزيعات مشتركة موحّدة:', Object.keys(DIV_HISTORY).length - 1, 'سهم');
+    return true;
+  } catch (e) { return false; }
+}
+/* ⚡ يُحمّل مرة عند فتح التطبيق/القسم — ويحدّث تلقائياً للأدمن إن قدُمت */
+let _divEnsured = false;
+async function divEnsureLoaded() {
+  if (_divEnsured) return;
+  _divEnsured = true;
+  const ok = await divLoadShared();
+  if (ok) { try { renderReturns(); } catch (e) {} try { renderTicker(); } catch (e) {} try { divUpdateStamp(); } catch (e) {} }
+  try {
+    if (typeof isAdmin === 'function' && isAdmin()) {
+      const at = (DIV_HISTORY && DIV_HISTORY._scannedAt) ? new Date(DIV_HISTORY._scannedAt).getTime() : 0;
+      const ageDays = at ? (Date.now() - at) / 86400000 : 999;
+      /* التوزيعات تتغيّر ببطء — تحديث تلقائي كل 7 أيام يكفي */
+      if (ageDays > 7 && typeof rows !== 'undefined' && Array.isArray(rows) && rows.length) {
+        if (typeof showToast === 'function') showToast('🔄 تحديث تلقائي لبيانات التوزيعات…');
+        await divScanAll(null);
+      }
+    }
+  } catch (e) {}
+}
+
+/* 🔍 مسح شامل: يفحص توزيعات كل الشركات ويرفعها للجميع (الأدمن فقط) */
 async function divScanAll(btn) {
+  if (!(typeof isAdmin === 'function' && isAdmin())) { showToast('⛔ فحص التوزيعات للأدمن فقط'); return; }
   const list = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.filter(r => r.sym && /^\d{4}$/.test(r.sym)) : [];
   if (!list.length) { showToast('⚠️ حمّل بيانات السوق أولاً'); return; }
   const orig = (typeof _btnBusy === 'function') ? _btnBusy(btn, '⏳ جارٍ الفحص…') : null;
@@ -5209,6 +5275,8 @@ async function divScanAll(btn) {
   await Promise.all(Array.from({ length: CONC }, worker));
   DIV_HISTORY._scannedAt = new Date().toISOString();
   try { localStorage.setItem(DIV_CACHE_KEY, JSON.stringify(DIV_HISTORY)); } catch (e) {}
+  await divUploadShared();                      // 🌐 وحّد النتيجة لكل المستخدمين
+  divUpdateStamp();                             // 🕒 حدّث سطر آخر تحديث
   if (typeof _btnDone === 'function') _btnDone(btn, orig, '✅ اكتمل: ' + withDiv + ' شركة موزِّعة');
   showToast('✅ اكتمل فحص التوزيعات: ' + withDiv + ' شركة توزّع فعلياً من ' + list.length);
   try { renderReturns(); } catch (e) {}
@@ -10378,7 +10446,14 @@ function switchTab(tab, btn) {
   // update panels
   document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('panel-' + tab).classList.add('active');
-  if (tab === 'returns') renderReturns();
+  if (tab === 'returns') {
+    renderReturns();
+    /* زر الفحص للأدمن فقط + تحميل التوزيعات المشتركة */
+    const _dsb = document.getElementById('divScanBox');
+    if (_dsb) _dsb.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'block' : 'none';
+    if (typeof divUpdateStamp === 'function') divUpdateStamp();
+    if (typeof divEnsureLoaded === 'function') divEnsureLoaded();
+  }
   if (tab === 'analysis') { marketAnalysisFilter('all'); updateHistCacheStatus(); }
   if (tab === 'all') predInit();
   if (tab === 'sniper' && typeof sniperRender === 'function') sniperRender();
@@ -11322,6 +11397,9 @@ function _adminHiddenNotice(tab) {
     }
   } else if (bar) bar.remove();
 }
+
+/* 💰 حمّل التوزيعات المشتركة عند فتح التطبيق (لتظهر العوائد والمفكرة للجميع فوراً) */
+setTimeout(() => { try { if (typeof divEnsureLoaded === 'function') divEnsureLoaded(); } catch (e) {} }, 2500);
 
 /* ⚡ حمّل نتائج المسح مبكراً ثم أعد رسم المراقبة — ليظهر صندوق «متتبَّع 24/7» فوراً بلا انتظار */
 setTimeout(() => {
