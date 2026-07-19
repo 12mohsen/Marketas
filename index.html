@@ -332,6 +332,48 @@ html.dark .nav-bar{background:#0d1117;border-color:rgba(255,255,255,.06)}
   box-shadow:0 2px 6px rgba(220,38,38,0.3);
 }
 
+/* ─── 📊 شريط الأسعار المتحرّك (Ticker) ─── */
+.ticker-wrap{
+  display:flex;align-items:stretch;gap:0;max-width:1100px;margin:0 auto 12px;
+  background:var(--surf);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;
+  box-shadow:0 2px 10px rgba(0,0,0,.18);
+}
+.ticker-label{
+  flex:none;display:flex;align-items:center;gap:6px;padding:0 14px;font-size:12.5px;font-weight:800;
+  color:#fff;background:linear-gradient(135deg,#166534,#22c55e);white-space:nowrap;
+}
+/* 🔑 الشريط يعمل باتجاه LTR ليصحّ حساب الحركة (الصفحة RTL)، والنصوص تبقى RTL */
+.ticker-toggle{
+  flex:none;border:none;cursor:pointer;padding:0 11px;font-size:15px;font-weight:900;
+  background:var(--surf-alt);color:var(--txt-m);border-left:1px solid var(--bdr);
+  transition:all .18s;font-family:inherit;
+}
+.ticker-toggle:hover{background:var(--bdr);color:var(--txt)}
+.ticker-view{flex:1;overflow:hidden;position:relative;direction:ltr}
+.ticker-track{
+  display:flex;align-items:center;white-space:nowrap;direction:ltr;
+  width:max-content;min-width:max-content;          /* العرض = عرض المحتوى الفعلي */
+  animation:tickerScroll 70s linear infinite;will-change:transform;
+}
+.ticker-wrap:hover .ticker-track{animation-play-state:paused}
+@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.tk-item{
+  display:inline-flex;align-items:center;gap:7px;padding:9px 16px;font-size:12.5px;
+  border-left:1px solid var(--bdr);cursor:pointer;
+  flex:0 0 auto;white-space:nowrap;                  /* لا تنكمش العناصر ولا تختفي */
+  direction:rtl;                                      /* النص العربي داخل العنصر يبقى سليماً */
+}
+.tk-item:hover{background:var(--surf-alt)}
+.tk-sym{color:var(--txt-m);font-size:11px}
+.tk-name{font-weight:800;color:var(--txt)}
+.tk-price{font-weight:900}
+.tk-chg{font-size:11.5px;font-weight:800}
+.tk-up{color:#22c55e}.tk-dn{color:#ef4444}.tk-flat{color:var(--txt-m)}
+@media(max-width:640px){
+  .ticker-label{padding:0 10px;font-size:11.5px}
+  .tk-item{padding:8px 12px;font-size:11.5px}
+}
+
 /* ─── Clear All Modal (modern minimal) ─── */
 .clear-modal-overlay{
   position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.78);
@@ -1427,6 +1469,12 @@ canvas#mdChart{display:block;width:100% !important}
 
 <!-- الرئيسية -->
 <div class="section-panel active" id="panel-home">
+<!-- 📊 شريط الأسعار المتحرّك (قابل للتبديل مستقبلاً: أسعار ⇄ أحداث الشركات) -->
+<div id="tickerWrap" class="ticker-wrap" style="display:none">
+  <div id="tickerLabel" class="ticker-label">📊 السوق</div>
+  <button id="tickerToggle" class="ticker-toggle" onclick="tickerToggle()" title="تبديل بين الأسعار والمفكرة">⇄</button>
+  <div class="ticker-view"><div id="tickerTrack" class="ticker-track"></div></div>
+</div>
 <div id="sahmkOfficialOverview" style="display:none;max-width:1100px;margin:0 auto;padding:0 8px"></div>
 <div class="tbl-wrap">
   <div class="tbl-box">
@@ -1541,6 +1589,10 @@ canvas#mdChart{display:block;width:100% !important}
     <span class="pf-search-ico">🔍</span>
     <input id="returnsSearch" class="pf-search-inp" type="text"
            placeholder="ابحث عن شركة أو رمز..." oninput="renderReturnsFilter()">
+  </div>
+  <div style="max-width:1100px;margin:0 auto 12px;text-align:center">
+    <button id="divScanBtn" onclick="divScanAll(this)" style="background:linear-gradient(135deg,#166534,#22c55e);border:none;color:#fff;border-radius:10px;padding:11px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;transition:all .2s">🔍 فحص شامل للتوزيعات (تواريخ حقيقية)</button>
+    <div id="divScanNote" style="font-size:11px;color:var(--txt-m);margin-top:7px;line-height:1.7">يجلب <b>التوزيعات الفعلية</b> لكل شركة (تاريخ ومبلغ آخر توزيع)، ويستبعد مَن توقّف عن التوزيع أكثر من 18 شهراً.</div>
   </div>
   <div id="returnsContent">
     <div class="coming-soon">
@@ -2000,8 +2052,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-18-v180';
-console.log('%c[تداول بلس] البناء: 2026-07-18-v180 — 🧠 جلب المعرّف صار ذكياً: يسرد كل المحادثات بأسمائها ولا يستبدل حقلاً ممتلئاً (يملأ الفارغ المناسب) · اختبار الوجهتين', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-19-v187';
+console.log('%c[تداول بلس] البناء: 2026-07-19-v187 — 🗓️ «المفكرة» في الرئيسية: شريط أحداث التوزيعات الحديثة (اسم · صرف أرباح · مبلغ · تاريخ) بزر تبديل ⇄ مع الأسعار، وتحكّم إظهارها من لوحة الأدمن', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -3778,6 +3830,10 @@ function renderAdminSection() {
           <input type="checkbox" id="admRequireLogin" ${s.requireLogin ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
         </label>
         <label style="${row};cursor:pointer">
+          <span>🗓️ إظهار «المفكرة» في الرئيسية (شريط أحداث التوزيعات + زر التبديل)</span>
+          <input type="checkbox" id="admShowAgenda" ${s.showAgenda !== false ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
+        </label>
+        <label style="${row};cursor:pointer">
           <span>🏛️ إظهار «نظرة السوق الرسمية» في الرئيسية (فعّلها عند توفّر بيانات لحظية)</span>
           <input type="checkbox" id="admMarketOverview" ${s.showMarketOverview ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
         </label>
@@ -5090,6 +5146,74 @@ async function histDbLoad(sym, minBars) {
   } catch (e) { return null; }
 }
 
+/* ════════════════════════════════════════════════════════════════
+   💰 التوزيعات الحقيقية — تُجلب من المصدر (تواريخ ومبالغ فعلية)
+   تُصحّح القائمة اليدوية: تكشف مَن توقّف عن التوزيع ومتى آخر توزيع.
+   ════════════════════════════════════════════════════════════════ */
+const DIV_CACHE_KEY = 'tadawulPlus_divHistory';
+let DIV_HISTORY = {};          // { sym: { last:'YYYY-MM-DD', ttm:0.00, count:0, items:[{d,a}] } }
+try { DIV_HISTORY = JSON.parse(localStorage.getItem(DIV_CACHE_KEY) || '{}'); } catch (e) { DIV_HISTORY = {}; }
+
+async function divFetchYahoo(sym) {
+  const ticker = sym + '.SR';
+  const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker +
+                    '?interval=1d&range=5y&events=div';
+  const proxies = [
+    (typeof PRIVATE_PROXY !== 'undefined' ? PRIVATE_PROXY : '') + encodeURIComponent(directUrl),
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl),
+    'https://corsproxy.io/?url=' + encodeURIComponent(directUrl),
+    'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(directUrl),
+  ];
+  for (const purl of proxies) {
+    try {
+      const res = await fetch(purl, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const data = JSON.parse(await res.text());
+      const r = data && data.chart && data.chart.result && data.chart.result[0];
+      if (!r) continue;
+      const evs = (r.events && r.events.dividends) || {};
+      const items = Object.keys(evs).map(k => ({
+        d: new Date(evs[k].date * 1000).toISOString().slice(0, 10),
+        a: +evs[k].amount || 0,
+      })).filter(x => x.a > 0).sort((a, b) => (a.d < b.d ? -1 : 1));
+      const yearAgo = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+      const ttm = items.filter(x => x.d >= yearAgo).reduce((s, x) => s + x.a, 0);
+      return {
+        last: items.length ? items[items.length - 1].d : null,
+        lastAmt: items.length ? items[items.length - 1].a : 0,
+        ttm: +ttm.toFixed(3), count: items.length, items: items.slice(-8),
+      };
+    } catch (e) { /* جرّب البروكسي التالي */ }
+  }
+  return null;
+}
+
+/* 🔍 مسح شامل: يفحص توزيعات كل الشركات المعروضة ويحفظ النتائج */
+async function divScanAll(btn) {
+  const list = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.filter(r => r.sym && /^\d{4}$/.test(r.sym)) : [];
+  if (!list.length) { showToast('⚠️ حمّل بيانات السوق أولاً'); return; }
+  const orig = (typeof _btnBusy === 'function') ? _btnBusy(btn, '⏳ جارٍ الفحص…') : null;
+  let done = 0, withDiv = 0, idx = 0;
+  const CONC = 4;
+  async function worker() {
+    while (idx < list.length) {
+      const r = list[idx++];
+      try {
+        const d = await divFetchYahoo(r.sym);
+        if (d) { DIV_HISTORY[r.sym] = d; if (d.count) withDiv++; }
+      } catch (e) {}
+      done++;
+      if (btn) btn.innerHTML = '⏳ ' + done + '/' + list.length + ' — وُجد ' + withDiv + ' موزِّعاً';
+    }
+  }
+  await Promise.all(Array.from({ length: CONC }, worker));
+  DIV_HISTORY._scannedAt = new Date().toISOString();
+  try { localStorage.setItem(DIV_CACHE_KEY, JSON.stringify(DIV_HISTORY)); } catch (e) {}
+  if (typeof _btnDone === 'function') _btnDone(btn, orig, '✅ اكتمل: ' + withDiv + ' شركة موزِّعة');
+  showToast('✅ اكتمل فحص التوزيعات: ' + withDiv + ' شركة توزّع فعلياً من ' + list.length);
+  try { renderReturns(); } catch (e) {}
+}
+
 /* جلب 5 سنوات يومي من المصدر (نفس بروكسيات التطبيق) بصيغة صفوف للتخزين */
 async function histFetchYahoo5y(sym) {
   const ticker = (sym === 'TASI') ? '^TASI.SR' : sym + '.SR';
@@ -5781,6 +5905,7 @@ async function adminSave(btn) {
     guestTabMode:   (function () { const o = {}; tabKeys.forEach(k => { const el = document.getElementById('admGMode-' + k); if (el) o[k] = el.value; }); return o; })(),
     guestHiddenTabs: tabKeys.filter(k => { const el = document.getElementById('admGMode-' + k); return el && el.value === 'hide'; }),
     requireLogin:   document.getElementById('admRequireLogin').checked,
+    showAgenda:     (function () { const e = document.getElementById('admShowAgenda'); return e ? e.checked : true; })(),
     showMarketOverview: document.getElementById('admMarketOverview').checked,
     allowClockTest: document.getElementById('admAllowClockTest').checked,
     maintenance:    document.getElementById('admMaintenance').checked,
@@ -6107,6 +6232,8 @@ function sortBy(col) {
    RENDER
 ───────────────────────────────────── */
 function render() {
+  /* 📊 حدّث شريط الأسعار المتحرّك مع كل رسم/تحديث للسوق */
+  try { if (typeof renderTicker === 'function') renderTicker(); } catch (e) {}
   const sec    = document.getElementById('secFilter').value.trim();
   const search = arNormalize(document.getElementById('searchBox').value);
 
@@ -7608,15 +7735,33 @@ function renderReturnsFromYahoo() { // الاسم محفوظ للتوافق، ل
   const el = document.getElementById('returnsContent');
   if (!el) return;
 
-  // ── مطابقة القائمة الموثوقة مع الأسهم المحمّلة فعلياً (أسعار حية) ──
+  /* ✅ الأولوية للتوزيعات الحقيقية المفحوصة (تواريخ ومبالغ فعلية)،
+     وإن لم يُجرَ فحص بعد نستخدم القائمة اليدوية مؤقتاً مع وسم التنبيه. */
+  const scanned = Object.keys(DIV_HISTORY).filter(k => k !== '_scannedAt').length > 0;
   const withDiv = [];
+  const staleMonths = 18;
+  const cutoff = new Date(Date.now() - staleMonths * 30 * 86400000).toISOString().slice(0, 10);
   rows.forEach(s => {
-    const known = KNOWN_DIVIDEND_STOCKS[s.sym];
-    if (!known) return;
     const priceN = toNum(s.price);
     if (priceN === null || priceN <= 0) return;
-    const divPct = +((known.rate / priceN) * 100).toFixed(2);
-    withDiv.push({ s, divN: divPct, divRate: known.rate, note: known.note });
+    const real = DIV_HISTORY[s.sym];
+    if (scanned) {
+      /* لا نعرض إلا مَن له توزيع فعلي خلال آخر 18 شهراً */
+      if (!real || !real.count || !real.last || real.last < cutoff) return;
+      const rate = real.ttm > 0 ? real.ttm : real.lastAmt;
+      withDiv.push({
+        s, divN: +((rate / priceN) * 100).toFixed(2), divRate: rate,
+        note: 'آخر توزيع: ' + real.last + ' (' + real.lastAmt.toFixed(2) + ' ر.س)',
+        last: real.last, verified: true,
+      });
+    } else {
+      const known = KNOWN_DIVIDEND_STOCKS[s.sym];
+      if (!known) return;
+      withDiv.push({
+        s, divN: +((known.rate / priceN) * 100).toFixed(2), divRate: known.rate,
+        note: known.note + ' — ⚠️ غير مُتحقَّق منه', verified: false,
+      });
+    }
   });
   withDiv.sort((a, b) => b.divN - a.divN);
 
@@ -7709,6 +7854,33 @@ function renderReturnsTableInner(el, withDiv, fromYahoo) {
           <span style="color:var(--txt-m)">السعر الحالي: <b style="color:var(--txt)">${fmtPrice(s.price)}</b></span>
           <span style="color:var(--txt-m)">العائد سنوياً: <b style="color:var(--txt)">${annualPerShare !== null ? annualPerShare.toFixed(2) + ' ر.س' : '—'}</b></span>
         </div>
+        ${(function () {
+          const h = (typeof DIV_HISTORY !== 'undefined') ? DIV_HISTORY[s.sym] : null;
+          if (h && h.last) {
+            /* كم مضى على آخر توزيع؟ */
+            const days = Math.round((Date.now() - new Date(h.last).getTime()) / 86400000);
+            const ago = days < 45 ? 'قبل ' + days + ' يوماً' :
+                        days < 400 ? 'قبل ' + Math.round(days / 30) + ' شهراً' :
+                                     'قبل ' + (days / 365).toFixed(1) + ' سنة';
+            const fresh = days <= 400;
+            const clr = fresh ? '#4ade80' : '#fbbf24';
+            return `
+              <div style="background:rgba(34,197,94,${fresh ? '.08' : '.04'});border:1px solid rgba(34,197,94,${fresh ? '.28' : '.15'});border-radius:9px;padding:9px 10px;margin-bottom:8px;font-size:11.5px;line-height:1.9">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                  <span style="color:var(--txt-m)">💵 آخر توزيع فعلي:</span>
+                  <span><b style="color:${clr}">${h.lastAmt.toFixed(2)} ر.س</b> · <b style="color:var(--txt)">${h.last}</b> <span style="color:var(--txt-m)">(${ago})</span></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                  <span style="color:var(--txt-m)">📊 مجموع آخر 12 شهراً:</span>
+                  <span><b style="color:var(--txt)">${(h.ttm || 0).toFixed(2)} ر.س</b> <span style="color:var(--txt-m)">· ${h.count} توزيعاً خلال 5 سنوات</span></span>
+                </div>
+                ${!fresh ? '<div style="color:#fbbf24;margin-top:3px">⚠️ لم توزّع منذ أكثر من سنة — تحقّق قبل الاعتماد عليها</div>' : ''}
+              </div>`;
+          }
+          /* لم يُجرَ فحص بعد */
+          return `<div style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.28);border-radius:9px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#fbbf24;line-height:1.8">
+            ⚠️ <b>رقم تقديري غير مُتحقَّق منه</b> — اضغط «🔍 فحص شامل للتوزيعات» أعلى القسم لجلب تاريخ ومبلغ آخر توزيع فعلي.</div>`;
+        })()}
         <button
           onclick="event.stopPropagation();pfOpenBuyModal('${s.sym}','${(s.name||'').replace(/'/g,"\\'")}')"
           style="width:100%;padding:8px;border-radius:8px;border:1px solid #166534;background:rgba(74,222,128,.1);color:#4ade80;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:background .15s"
@@ -11034,6 +11206,103 @@ function _autoPriceRefresh() {
     loadCSV();
   } catch (e) { /* تجاهل */ }
 }
+/* ════════════════════════════════════════════════════════════════
+   📊 شريط الأسعار المتحرّك — الصفحة الرئيسية
+   مصمّم للتبديل مستقبلاً: TICKER_MODE = 'prices' أو 'events'
+   ════════════════════════════════════════════════════════════════ */
+let TICKER_MODE = 'prices';          // 'prices' = السوق · 'events' = المفكرة
+let TICKER_EVENTS = [];              // [{sym, name, type, date, ts, amt}]
+
+/* 🗓️ يبني «المفكرة» من التوزيعات الحقيقية المفحوصة — الحديثة فقط (آخر 120 يوماً) */
+const _AR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+function buildAgendaEvents() {
+  const out = [];
+  if (typeof DIV_HISTORY === 'undefined') return out;
+  const now = Date.now();
+  Object.keys(DIV_HISTORY).forEach(sym => {
+    if (sym === '_scannedAt') return;
+    const h = DIV_HISTORY[sym];
+    if (!h || !h.last) return;
+    const t = new Date(h.last).getTime();
+    const days = (now - t) / 86400000;
+    if (days > 120 || days < -30) return;          // الحديثة فقط
+    const r = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.find(x => x.sym === sym) : null;
+    const d = new Date(h.last);
+    out.push({
+      sym: sym, name: (r && r.name) || sym, type: 'صرف أرباح نقدية',
+      date: d.getDate() + ' ' + _AR_MONTHS[d.getMonth()], ts: t, amt: h.lastAmt || 0,
+    });
+  });
+  out.sort((a, b) => b.ts - a.ts);                  // الأحدث أولاً
+  return out;
+}
+/* ⇄ تبديل بين الأسعار والمفكرة */
+window.tickerToggle = function () {
+  window.tickerSwitch(TICKER_MODE === 'prices' ? 'events' : 'prices');
+};
+
+function renderTicker() {
+  const wrap  = document.getElementById('tickerWrap');
+  const track = document.getElementById('tickerTrack');
+  const label = document.getElementById('tickerLabel');
+  if (!wrap || !track) return;
+  /* 🗓️ المفكرة يتحكّم بها الأدمن — إن مُنعت: يُخفى زر التبديل ويُفرض وضع الأسعار */
+  const agendaOn = !(typeof appSettings !== 'undefined' && appSettings && appSettings.showAgenda === false);
+  const tgl = document.getElementById('tickerToggle');
+  if (tgl) tgl.style.display = agendaOn ? '' : 'none';
+  if (!agendaOn && TICKER_MODE === 'events') TICKER_MODE = 'prices';
+
+  let items = [];
+  if (TICKER_MODE === 'events') {
+    TICKER_EVENTS = buildAgendaEvents();
+    label.textContent = '🗓️ المفكرة ' + (TICKER_EVENTS.length || '');
+    label.style.background = 'linear-gradient(135deg,#7c3aed,#a855f7)';
+    items = (TICKER_EVENTS || []).map(e =>
+      '<span class="tk-item" onclick="marketStockAnalysis(\'' + e.sym + '\',\'' + String(e.name).replace(/'/g, "\\'") + '\')">' +
+      '<span class="tk-sym">' + e.sym + '</span>' +
+      '<span class="tk-name">' + e.name + '</span>' +
+      '<span class="tk-chg" style="color:#c084fc">' + e.type + '</span>' +
+      (e.amt ? '<span class="tk-price tk-up">' + e.amt.toFixed(2) + ' ر.س</span>' : '') +
+      '<span class="tk-sym">' + e.date + '</span></span>');
+    if (!items.length) {
+      items = ['<span class="tk-item"><span class="tk-name" style="color:var(--txt-m)">لا توزيعات حديثة — اضغط «فحص شامل للتوزيعات» في قسم العوائد</span></span>'];
+    }
+  } else {
+    label.textContent = '📊 السوق';
+    label.style.background = 'linear-gradient(135deg,#166534,#22c55e)';
+    const cell = (name, sym, price, chg) => {
+      const c = chg > 0 ? 'tk-up' : chg < 0 ? 'tk-dn' : 'tk-flat';
+      const ar = chg > 0 ? '▲' : chg < 0 ? '▼' : '•';
+      const sg = chg > 0 ? '+' : '';
+      return '<span class="tk-item"' + (sym ? ' onclick="marketStockAnalysis(\'' + sym + '\',\'' + String(name).replace(/'/g, "\\'") + '\')"' : '') + '>' +
+        (sym ? '<span class="tk-sym">' + sym + '</span>' : '') +
+        '<span class="tk-name">' + name + '</span>' +
+        '<span class="tk-price ' + c + '">' + (price != null ? Number(price).toFixed(2) : '—') + '</span>' +
+        '<span class="tk-chg ' + c + '">' + ar + ' ' + sg + (chg != null ? Number(chg).toFixed(2) : '0.00') + '%</span></span>';
+    };
+    /* المؤشر العام أولاً */
+    if (typeof tasiObj !== 'undefined' && tasiObj) {
+      items.push(cell('TASI المؤشر العام', '', toNum(tasiObj.price), toNum(tasiObj.chg)));
+    }
+    /* أكثر الأسهم حركة (صعوداً وهبوطاً) — أوضح للعين من ترتيب أبجدي */
+    const src = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.slice() : [];
+    const withChg = src.filter(r => r.sym && toNum(r.price) && toNum(r.chg) != null);
+    /* كل الشركات — والأكثر حركة أولاً ليبدأ الشريط بالأهم */
+    withChg.sort((a, b) => Math.abs(toNum(b.chg) || 0) - Math.abs(toNum(a.chg) || 0));
+    withChg.forEach(r => items.push(cell(r.name || r.sym, r.sym, toNum(r.price), toNum(r.chg))));
+  }
+
+  if (!items.length) { wrap.style.display = 'none'; return; }
+  /* التكرار مرّتين ليبدو التمرير متّصلاً بلا انقطاع */
+  const html = items.join('');
+  track.innerHTML = html + html;
+  /* ⏱️ سرعة انسياب ثابتة مهما كثر العدد: تطول المدّة بنسبة عدد العناصر */
+  track.style.animationDuration = Math.max(40, Math.round(items.length * 2.2)) + 's';
+  wrap.style.display = 'flex';
+}
+/* بدّل بين الأسعار والأحداث (جاهز للمستقبل) */
+window.tickerSwitch = function (mode) { TICKER_MODE = mode === 'events' ? 'events' : 'prices'; renderTicker(); };
+
 /* 🚫 شريط تنبيه للأدمن داخل أي قسم محجوب عن المستخدمين (الأدمن يراه، وهم لا) */
 function _adminHiddenNotice(tab) {
   const panel = document.getElementById('panel-' + tab);
