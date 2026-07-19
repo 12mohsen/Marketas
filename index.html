@@ -1998,8 +1998,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-18-v168';
-console.log('%c[تداول بلس] البناء: 2026-07-18-v168 — 👥 تحكّم منفصل بأقسام الزوار (غير المسجّلين): إخفاء إضافي لهم وحدهم، مع وراثة إخفاء المستخدمين · الأدمن مستثنى دائماً', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-18-v172';
+console.log('%c[تداول بلس] البناء: 2026-07-18-v172 — 💡 تغذية راجعة موحّدة لكل أزرار الحفظ (الإعدادات · الحساب البنكي · أسعار الخدمات): ⏳ جارٍ → ✅ تم / ⚠️ فشل بألوان واضحة', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -3197,13 +3197,15 @@ async function syncProfileAndRestrictions() {
 function applyAppSettings() {
   const s = appSettings || {};
   /* إظهار/إخفاء الأقسام: القيود العامة + الفردية معاً */
-  /* 👥 الزائر (غير مسجّل) يرث إخفاء المستخدمين + إخفاءً إضافياً خاصاً بالزوار */
+  /* 👥 قائمتان مستقلّتان تماماً: الزائر يتبع «وضع الزوار» وحده، والمسجّل يتبع قائمته وقيوده.
+     فلا يؤثّر إخفاء قسم عن المسجّلين على ما يراه الزائر (والعكس). */
   const _isGuest = !(typeof sbUser !== 'undefined' && sbUser);
-  const hidden = new Set([
-    ...(s.hiddenTabs || []),
-    ...(_isGuest ? (s.guestHiddenTabs || []) : []),
-    ...((userRestrictions && userRestrictions.hidden_tabs) || []),
-  ]);
+  const _gMode = (s.guestTabMode || {});
+  const hidden = new Set(
+    _isGuest
+      ? Object.keys(_gMode).filter(k => _gMode[k] === 'hide').concat(s.guestHiddenTabs || [])
+      : [...(s.hiddenTabs || []), ...((userRestrictions && userRestrictions.hidden_tabs) || [])]
+  );
   /* 💳 بعد انتهاء الاشتراك: لا تُحجب الأقسام — تبقى ظاهرة، وتُظلَّل «الأهداف ووقف الخسارة»
      فقط تلقائياً حسب الاشتراك (عبر _targetsLocked). لذا لا نضيف الأقسام المنتهية للمخفيّة. */
   /* 👑 الأدمن مُستثنى: يرى كل الأقسام دائماً، مع علامة 🚫 تنبّهه أن القسم محجوب عن العامة */
@@ -3242,7 +3244,8 @@ function applyAppSettings() {
     const id = 'panel-' + t.k;
     const p = document.getElementById(id);
     if (!p) return;
-    const doBlur = !(typeof isAdmin === 'function' && isAdmin()) && _secFlags(userRestrictions, t.k).blur;
+    const _guestBlur = _isGuest && _gMode[t.k] === 'blur';   // 🌫️ تظليل خاص بالزوار
+    const doBlur = !(typeof isAdmin === 'function' && isAdmin()) && (_secFlags(userRestrictions, t.k).blur || _guestBlur);
     p.style.filter = doBlur ? 'blur(6px)' : '';
     p.style.userSelect = doBlur ? 'none' : '';
     p.style.pointerEvents = doBlur ? 'none' : '';
@@ -3260,6 +3263,15 @@ function applyAppSettings() {
         p.parentNode.insertBefore(tag, p);
       }
       tag.style.display = 'block';
+      /* نصّ مناسب: الزائر يُدعى للتسجيل، والمسجّل للاشتراك */
+      const _sp = tag.querySelector('span');
+      if (_sp) {
+        _sp.textContent = _guestBlur ? '🔓 سجّل الدخول لعرض المحتوى كاملاً' : '🔒 اشترك لعرض المحتوى كاملاً';
+        _sp.onclick = () => {
+          if (_guestBlur) { const b = document.getElementById('btnAuth'); if (b) { b.click(); return; } }
+          if (typeof showSupportNotice === 'function') showSupportNotice();
+        };
+      }
     } else if (tag) tag.style.display = 'none';
   });
   /* شريط الإعلان */
@@ -3746,14 +3758,17 @@ function renderAdminSection() {
                    style="width:18px;height:18px;cursor:pointer">
           </label>`).join('')}
 
-        <div style="${head};margin-top:20px">👥 الأقسام الظاهرة للزوار (غير المسجّلين)</div>
-        <div style="font-size:11px;color:var(--txt-m);margin:-2px 0 8px;line-height:1.75">إخفاء <b>إضافي للزوار فقط</b>. وأي قسم أخفيته عن المستخدمين أعلاه يبقى مخفياً عن الزوار تلقائياً. الأدمن مستثنى دائماً.</div>
-        ${tabs.map(t => `
-          <label style="${row};cursor:pointer">
+        <div style="${head};margin-top:20px">👥 عرض الأقسام للزوار (غير المسجّلين)</div>
+        <div style="font-size:11px;color:var(--txt-m);margin:-2px 0 8px;line-height:1.75">لكل قسم اختر: <b>👁️ ظاهر</b> · <b>🌫️ ضبابي</b> (تذوّق يُغري بالتسجيل) · <b>🚫 مخفي</b>. هذه القائمة <b>مستقلّة تماماً</b> عن قائمة المسجّلين أعلاه — فإخفاء قسم عنهم لا يؤثّر على الزوار. الأدمن مستثنى دائماً.</div>
+        ${tabs.map(t => { const gm = ((s.guestTabMode || {})[t.k]) || ((s.guestHiddenTabs || []).includes(t.k) ? 'hide' : 'show'); return `
+          <label style="${row}">
             <span>${t.t}</span>
-            <input type="checkbox" id="admGTab-${t.k}" ${(s.guestHiddenTabs || []).includes(t.k) ? '' : 'checked'}
-                   style="width:18px;height:18px;cursor:pointer">
-          </label>`).join('')}
+            <select id="admGMode-${t.k}" style="background:var(--surf-alt);color:var(--txt);border:1px solid var(--bdr);border-radius:8px;padding:6px 10px;font-size:12px;font-family:inherit;cursor:pointer">
+              <option value="show" ${gm === 'show' ? 'selected' : ''}>👁️ ظاهر</option>
+              <option value="blur" ${gm === 'blur' ? 'selected' : ''}>🌫️ ضبابي</option>
+              <option value="hide" ${gm === 'hide' ? 'selected' : ''}>🚫 مخفي</option>
+            </select>
+          </label>`; }).join('')}
 
         <div style="${head};margin-top:20px">🔐 التحكم بالوصول</div>
         <label style="${row};cursor:pointer">
@@ -3788,9 +3803,11 @@ function renderAdminSection() {
           style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;
                  border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12.5px;outline:none">
 
-        <button onclick="adminSave()" style="width:100%;margin-top:20px;padding:13px;border-radius:11px;
-          border:none;cursor:pointer;font-weight:800;font-size:14px;color:#1a1a1a;
+        <button id="admSaveBtn" onclick="adminSave(this)" style="width:100%;margin-top:20px;padding:13px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:14px;color:#1a1a1a;transition:all .2s;
           background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ ونشر على كل المستخدمين</button>
+        <div id="admSaveNote" style="display:none;margin-top:10px;padding:11px 14px;border-radius:10px;text-align:center;
+          font-size:13px;font-weight:800;line-height:1.7"></div>
       </div>` : ''}
 
       <!-- 🏦 الحسابات البنكية للدفع (للأدمن الرئيسي فقط) -->
@@ -3807,8 +3824,8 @@ function renderAdminSection() {
           <input id="admBankIban"    type="text" placeholder="رقم الآيبان IBAN" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;direction:ltr;text-align:left;font-family:inherit">
           <input id="admBankAccount" type="text" placeholder="رقم الحساب (اختياري)" style="width:100%;box-sizing:border-box;margin-bottom:7px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;direction:ltr;text-align:left;font-family:inherit">
           <input id="admBankNote"    type="text" placeholder="ملاحظة (اختياري)" style="width:100%;box-sizing:border-box;margin-bottom:9px;padding:9px 11px;border-radius:9px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:12px;outline:none;font-family:inherit">
-          <button onclick="adminAddBank()" style="width:100%;padding:11px;border-radius:10px;border:none;cursor:pointer;
-            font-weight:800;font-size:12.5px;color:#fff;background:linear-gradient(135deg,#166534,#22c55e)">➕ إضافة الحساب</button>
+          <button onclick="adminAddBank(this)" style="width:100%;padding:11px;border-radius:10px;border:none;cursor:pointer;
+            font-weight:800;font-size:12.5px;color:#fff;transition:all .2s;background:linear-gradient(135deg,#166534,#22c55e)">➕ إضافة الحساب</button>
         </div>
       </div>` : ''}
 
@@ -3826,8 +3843,8 @@ function renderAdminSection() {
             <input id="admSvc-${t.k}-days" type="number" min="0" placeholder="أيام" value="${g.days != null ? g.days : ''}"
               style="width:66px;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1.5px solid var(--bdr);background:var(--surf-alt);color:var(--txt);font-size:11.5px;outline:none;font-family:inherit">
           </div>`; }).join('')}
-        <button onclick="adminSaveServicePrices()" style="width:100%;margin-top:14px;padding:12px;border-radius:11px;
-          border:none;cursor:pointer;font-weight:800;font-size:13px;color:#1a1a1a;
+        <button onclick="adminSaveServicePrices(this)" style="width:100%;margin-top:14px;padding:12px;border-radius:11px;
+          border:none;cursor:pointer;font-weight:800;font-size:13px;color:#1a1a1a;transition:all .2s;
           background:linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)">💾 حفظ أسعار الخدمات</button>
       </div>` : ''}
 
@@ -4237,15 +4254,49 @@ async function _admSaveBanks(banks) {
   return true;
 }
 
-async function adminAddBank() {
+/* 💡 تغذية راجعة موحّدة لأزرار الحفظ: ⏳ جارٍ → ✅ تم / ⚠️ فشل، ثم تعود لحالها */
+function _btnBusy(btn, txt) {
+  if (!btn) return null;
+  const orig = { html: btn.innerHTML, bg: btn.style.background, color: btn.style.color };
+  btn.disabled = true;
+  btn.style.background = 'linear-gradient(135deg,#64748b,#94a3b8)';
+  btn.style.color = '#fff';
+  btn.innerHTML = txt || '⏳ جارٍ الحفظ…';
+  return orig;
+}
+function _btnRestore(btn, orig, ms) {
+  setTimeout(() => {
+    if (!btn || !orig) return;
+    btn.innerHTML = orig.html; btn.style.background = orig.bg; btn.style.color = orig.color;
+  }, ms || 3000);
+}
+function _btnDone(btn, orig, txt) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.style.background = 'linear-gradient(135deg,#166534 0%,#22c55e 100%)';
+  btn.style.color = '#fff';
+  btn.innerHTML = txt || '✅ تم الحفظ بنجاح';
+  _btnRestore(btn, orig);
+}
+function _btnFail(btn, orig, txt) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.style.background = 'linear-gradient(135deg,#991b1b,#ef4444)';
+  btn.style.color = '#fff';
+  btn.innerHTML = txt || '⚠️ فشل — حاول مجدداً';
+  _btnRestore(btn, orig);
+}
+
+async function adminAddBank(btn) {
   if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const _o = _btnBusy(btn, '⏳ جارٍ الإضافة…');
   const name    = (document.getElementById('admBankName').value || '').trim();
   const holder  = (document.getElementById('admBankHolder').value || '').trim();
   const iban    = (document.getElementById('admBankIban').value || '').trim().replace(/\s/g, '');
   const account = (document.getElementById('admBankAccount').value || '').trim();
   const note    = (document.getElementById('admBankNote').value || '').trim();
-  if (!name)  { showToast('⚠️ اكتب اسم البنك'); return; }
-  if (!iban && !account) { showToast('⚠️ أدخل الآيبان أو رقم الحساب'); return; }
+  if (!name)  { showToast('⚠️ اكتب اسم البنك'); _btnFail(btn, _o, '⚠️ اكتب اسم البنك'); return; }
+  if (!iban && !account) { showToast('⚠️ أدخل الآيبان أو رقم الحساب'); _btnFail(btn, _o, '⚠️ أدخل الآيبان أو الحساب'); return; }
   const banks = (appSettings && Array.isArray(appSettings.banks)) ? appSettings.banks.slice() : [];
   banks.push({ id: 'bk-' + Date.now().toString(36), name, holder, iban, account, note });
   if (await _admSaveBanks(banks)) {
@@ -4254,7 +4305,8 @@ async function adminAddBank() {
       const e = document.getElementById(id); if (e) e.value = '';
     });
     _admRenderBanksList();
-  }
+    _btnDone(btn, _o, '✅ أُضيف الحساب البنكي');
+  } else _btnFail(btn, _o, '⚠️ تعذّرت الإضافة');
 }
 
 function adminRemoveBank(id) {
@@ -4276,8 +4328,9 @@ async function _adminRemoveBankConfirmed(id) {
 }
 
 /* 💵 حفظ الأسعار العامة للخدمات (تظهر في صفحة الدفع لكل المستخدمين) */
-async function adminSaveServicePrices() {
+async function adminSaveServicePrices(btn) {
   if (!isSuperAdmin()) { showToast('⛔ للأدمن الرئيسي فقط'); return; }
+  const _o = _btnBusy(btn, '⏳ جارٍ حفظ الأسعار…');
   /* 🧩 مصدر واحد للأقسام — يشمل قنّاص الفرص وأي قسم جديد */
   const keys = (typeof ADMIN_TAB_DEFS !== 'undefined' && ADMIN_TAB_DEFS.length)
     ? ADMIN_TAB_DEFS.map(t => t.k)
@@ -4294,8 +4347,9 @@ async function adminSaveServicePrices() {
   appSettings = Object.assign({}, appSettings, { servicePrices: sp });
   const { error } = await sb.from('app_settings')
     .upsert({ id: 1, data: appSettings, updated_at: new Date().toISOString() });
-  if (error) { _admErr(error, 'فشل حفظ الأسعار'); return; }
+  if (error) { _admErr(error, 'فشل حفظ الأسعار'); _btnFail(btn, _o, '⚠️ تعذّر حفظ الأسعار'); return; }
   showToast('✅ حُفظت أسعار الخدمات — تظهر للمستخدمين في صفحة الدفع');
+  _btnDone(btn, _o, '✅ حُفظت أسعار الخدمات');
 }
 
 /* ✉️ رد سريع على الزائر عبر Outlook — يفتح شاشة إنشاء الرسالة مباشرة والبريد معبّأ،
@@ -5626,15 +5680,53 @@ async function adminSaveUser() {
   adminLoadUsers();
 }
 
-async function adminSave() {
+async function adminSave(btn) {
   if (!isSuperAdmin()) { showToast('⛔ الإعدادات العامة للأدمن الرئيسي فقط'); return; }
+  /* 💡 تغذية راجعة واضحة: الزر يتحوّل «جارٍ الحفظ» ثم «تم» بلون أخضر + شريط تأكيد أسفله */
+  btn = btn || document.getElementById('admSaveBtn');
+  const _orig = btn ? { html: btn.innerHTML, bg: btn.style.background } : null;
+  const _note = document.getElementById('admSaveNote');
+  const _setNote = (txt, bg, bd, fg) => {
+    if (!_note) return;
+    _note.style.display = 'block';
+    _note.style.background = bg; _note.style.border = '1px solid ' + bd; _note.style.color = fg;
+    _note.innerHTML = txt;
+  };
+  if (btn) {
+    btn.disabled = true;
+    btn.style.background = 'linear-gradient(135deg,#64748b,#94a3b8)';
+    btn.innerHTML = '⏳ جارٍ الحفظ والنشر…';
+  }
+  _setNote('⏳ جارٍ الحفظ…', 'rgba(148,163,184,.12)', 'rgba(148,163,184,.3)', '#cbd5e1');
+  const _fail = m => {
+    if (btn && _orig) { btn.disabled = false; btn.innerHTML = _orig.html; btn.style.background = _orig.bg || 'linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)'; }
+    _setNote('⚠️ ' + m, 'rgba(239,68,68,.12)', 'rgba(239,68,68,.4)', '#fca5a5');
+  };
+  const _done = () => {
+    if (btn) {
+      btn.disabled = false;
+      btn.style.background = 'linear-gradient(135deg,#166534 0%,#22c55e 100%)';
+      btn.style.color = '#fff';
+      btn.innerHTML = '✅ تم الحفظ والنشر بنجاح';
+      setTimeout(() => {
+        if (!_orig) return;
+        btn.innerHTML = _orig.html; btn.style.color = '#1a1a1a';
+        btn.style.background = _orig.bg || 'linear-gradient(135deg,#f59e0b 0%,#fbbf24 100%)';
+      }, 3500);
+    }
+    _setNote('✅ <b>حُفظت الإعدادات وسرت على كل المستخدمين</b><br><span style="font-weight:600;font-size:11.5px">تسري خلال ثوانٍ على الأجهزة المفتوحة</span>',
+      'rgba(34,197,94,.12)', 'rgba(34,197,94,.4)', '#4ade80');
+    setTimeout(() => { if (_note) _note.style.display = 'none'; }, 8000);
+  };
+  window.__admSaveDone = _done; window.__admSaveFail = _fail;
   /* 🧩 مصدر واحد للأقسام — يشمل أي قسم جديد تلقائياً (كقنّاص الفرص) */
   const tabKeys = (typeof ADMIN_TAB_DEFS !== 'undefined' && ADMIN_TAB_DEFS.length)
     ? ADMIN_TAB_DEFS.map(t => t.k)
     : ['watchlist', 'monitor', 'returns', 'all', 'sniper', 'analysis'];
   appSettings = Object.assign({}, appSettings, {
     hiddenTabs:     tabKeys.filter(k => { const el = document.getElementById('admTab-' + k); return el && !el.checked; }),
-    guestHiddenTabs: tabKeys.filter(k => { const el = document.getElementById('admGTab-' + k); return el && !el.checked; }),
+    guestTabMode:   (function () { const o = {}; tabKeys.forEach(k => { const el = document.getElementById('admGMode-' + k); if (el) o[k] = el.value; }); return o; })(),
+    guestHiddenTabs: tabKeys.filter(k => { const el = document.getElementById('admGMode-' + k); return el && el.value === 'hide'; }),
     requireLogin:   document.getElementById('admRequireLogin').checked,
     showMarketOverview: document.getElementById('admMarketOverview').checked,
     allowClockTest: document.getElementById('admAllowClockTest').checked,
@@ -5647,9 +5739,10 @@ async function adminSave() {
   });
   const { error } = await sb.from('app_settings')
     .upsert({ id: 1, data: appSettings, updated_at: new Date().toISOString() });
-  if (error) { _admErr(error, 'فشل حفظ الإعدادات'); return; }
+  if (error) { _admErr(error, 'فشل حفظ الإعدادات'); _fail('تعذّر الحفظ — حاول مرة أخرى'); return; }
   applyAppSettings();
   showToast('✅ حُفظت الإعدادات وسرت على كل المستخدمين');
+  _done();
 }
 
 /* ─────────────────────────────────────
