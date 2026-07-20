@@ -355,7 +355,10 @@ html.dark .nav-bar{background:#0d1117;border-color:rgba(255,255,255,.06)}
   width:max-content;min-width:max-content;          /* العرض = عرض المحتوى الفعلي */
   animation:tickerScroll 70s linear infinite;will-change:transform;
 }
-.ticker-wrap:hover .ticker-track{animation-play-state:paused}
+/* التوقّف عند المرور — للحواسيب فقط. على اللمس تعلق حالة hover فيتجمّد الشريط */
+@media (hover:hover) and (pointer:fine){
+  .ticker-wrap:hover .ticker-track{animation-play-state:paused}
+}
 @keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 .tk-item{
   display:inline-flex;align-items:center;gap:7px;padding:9px 16px;font-size:12.5px;
@@ -2053,8 +2056,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-19-v189';
-console.log('%c[تداول بلس] البناء: 2026-07-19-v189 — 🕒 سطر «آخر تحديث» للأدمن في قسم العوائد: التاريخ والوقت وكم مضى وعدد الأسهم، مع تنبيه إن قدُمت البيانات', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-19-v190';
+console.log('%c[تداول بلس] البناء: 2026-07-19-v190 — 📱 إصلاح تجمّد الشريط على الجوال: قصر «التوقّف عند المرور» على الأجهزة ذات المؤشّر (hover عالقة عند اللمس كانت توقفه)', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
