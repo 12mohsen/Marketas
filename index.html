@@ -2063,8 +2063,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-20-v201';
-console.log('%c[تداول بلس] البناء: 2026-07-20-v201 — 🔄 تزامن حيّ بين كل الأجهزة: أي مسح من الكمبيوتر أو الجوال يظهر على البقية خلال دقيقتين (وفوراً عند العودة للتبويب) — للرادار والتوزيعات معاً', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-20-v202';
+console.log('%c[تداول بلس] البناء: 2026-07-20-v202 — ⏱️ إصلاح جذري لدقّة المتنبّئ: المهلة كانت تُحسب على حدّ التذبذب 10% يومياً (افتراض مستحيل) فصارت الأهداف «خلال يومين» ويفشل التقييم — الآن تُحسب على مدى تذبذب السهم الفعلي (ATR)', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -9066,8 +9066,13 @@ document.addEventListener('keydown', e => {
     if (direction !== 'none') {
       target = direction === 'up' ? price + measured : price - measured;
       targetPct = (target - price) / price * 100;
-      // قيد حد التذبذب اليومي: وزّع الحركة على أيام
-      daysToTarget = Math.max(1, Math.ceil(Math.abs(targetPct) / dailyLimit));
+      /* ⏱️ المهلة على الحركة اليومية الواقعية للسهم (من ATR) لا على حدّ السوق النظامي.
+         الخطأ السابق: قسمة الهدف على 10% (حدّ التذبذب) افترضت ضرب النسبة القصوى يومياً
+         متتالياً — فصارت أهداف +20% «خلال يومين» ففشل التقييم دائماً تقريباً.
+         الواقعي: السهم يقطع في اليوم ~60% من متوسط مداه الحقيقي في اتجاه واحد. */
+      const atrPct = price ? ((atr[n - 1] || 0) / price) * 100 : 0;
+      const dailyRealistic = Math.max(0.4, atrPct * 0.6);
+      daysToTarget = Math.min(30, Math.max(3, Math.ceil(Math.abs(targetPct) / dailyRealistic)));
     }
 
     const timing =
