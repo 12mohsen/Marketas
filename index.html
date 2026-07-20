@@ -1596,7 +1596,7 @@ canvas#mdChart{display:block;width:100% !important}
   <div id="divScanBox" style="display:none;max-width:1100px;margin:0 auto 12px;text-align:center">
     <button id="divScanBtn" onclick="divScanAll(this)" style="background:linear-gradient(135deg,#166534,#22c55e);border:none;color:#fff;border-radius:10px;padding:11px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit;transition:all .2s">🔍 فحص شامل للتوزيعات (أدمن)</button>
     <div id="divScanStamp" style="font-size:11.5px;margin-top:7px;line-height:1.8;font-weight:700"></div>
-    <div id="divScanNote" style="font-size:11px;color:var(--txt-m);margin-top:5px;line-height:1.7">يجلب <b>التوزيعات الفعلية</b> (تاريخ ومبلغ آخر توزيع) <b>ويرفعها لكل المستخدمين</b>. يُحدَّث تلقائياً كل 7 أيام عند فتحك التطبيق.</div>
+    <div id="divScanNote" style="font-size:11px;color:var(--txt-m);margin-top:5px;line-height:1.7">يجلب <b>كامل تاريخ التوزيعات</b> لكل شركة (تواريخ · مبالغ · سنوات الاستمرارية) <b>ويرفعها لكل المستخدمين</b>، ويمنح وسام <b style="color:#facc15">👑 ملك التوزيعات</b> لمن وزّع 15 سنة متصلة فأكثر. يُحدَّث تلقائياً كل 7 أيام.</div>
   </div>
   <div id="returnsContent">
     <div class="coming-soon">
@@ -2063,8 +2063,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-20-v199';
-console.log('%c[تداول بلس] البناء: 2026-07-20-v199 — 🚫 شرط «لا مطاردة»: تُستبعد الفرصة إن تجاوز السعر 8% فوق الدخول المخطّط (وقف بعيد وهدف أول قريب = اختلال) · مواءمة وسم النافذة مع البوابة', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-20-v200';
+console.log('%c[تداول بلس] البناء: 2026-07-20-v200 — 👑 ملوك التوزيعات: جلب كامل تاريخ التوزيعات وحساب السنوات المتصلة والوتيرة، ووسام 👑 (15+ سنة) و⭐ (8+) — جدول محقَّق بالبيانات لا منسوخ', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -5167,8 +5167,9 @@ try { DIV_HISTORY = JSON.parse(localStorage.getItem(DIV_CACHE_KEY) || '{}'); } c
 
 async function divFetchYahoo(sym) {
   const ticker = sym + '.SR';
+  /* كامل التاريخ المتاح بفاصل شهري: حجم أصغر بكثير وسجلّ التوزيعات يبقى كاملاً */
   const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker +
-                    '?interval=1d&range=5y&events=div';
+                    '?interval=1mo&range=max&events=div';
   const proxies = [
     (typeof PRIVATE_PROXY !== 'undefined' ? PRIVATE_PROXY : '') + encodeURIComponent(directUrl),
     'https://api.allorigins.win/raw?url=' + encodeURIComponent(directUrl),
@@ -5189,10 +5190,27 @@ async function divFetchYahoo(sym) {
       })).filter(x => x.a > 0).sort((a, b) => (a.d < b.d ? -1 : 1));
       const yearAgo = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
       const ttm = items.filter(x => x.d >= yearAgo).reduce((s, x) => s + x.a, 0);
+      /* 👑 مقاييس الاستمرارية: سنوات متصلة · أول سنة · وتيرة التوزيع */
+      const byYear = {};
+      items.forEach(x => { const y = +x.d.slice(0, 4); byYear[y] = (byYear[y] || 0) + 1; });
+      const yrs = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+      let streak = 0;
+      if (yrs.length) {
+        const lastY = yrs[yrs.length - 1];
+        const nowY = new Date().getFullYear();
+        /* لا نكسر السلسلة إن لم توزّع بعدُ هذه السنة (قد لم يحن موعدها) */
+        let y = (nowY - lastY <= 1) ? lastY : lastY;
+        while (byYear[y]) { streak++; y--; }
+      }
+      const recent = yrs.slice(-3);
+      const perYear = recent.length ? recent.reduce((s, y) => s + byYear[y], 0) / recent.length : 0;
+      const freq = perYear >= 3.5 ? 'ربع سنوي' : perYear >= 1.6 ? 'نصف سنوي' : perYear >= 0.8 ? 'سنوي' : 'متقطّع';
       return {
         last: items.length ? items[items.length - 1].d : null,
         lastAmt: items.length ? items[items.length - 1].a : 0,
         ttm: +ttm.toFixed(3), count: items.length, items: items.slice(-8),
+        streak: streak, firstYear: yrs.length ? yrs[0] : null,
+        lastYear: yrs.length ? yrs[yrs.length - 1] : null, freq: freq,
       };
     } catch (e) { /* جرّب البروكسي التالي */ }
   }
@@ -7922,7 +7940,13 @@ function renderReturnsTableInner(el, withDiv, fromYahoo) {
           <div style="display:flex;align-items:center;gap:8px;min-width:0">
             <span style="font-weight:700;color:var(--txt-m);font-size:13px;flex-shrink:0">${rankBadge}</span>
             <div style="min-width:0">
-              <div class="co-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}</div>
+              <div class="co-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}${(function () {
+                const h = (typeof DIV_HISTORY !== 'undefined') ? DIV_HISTORY[s.sym] : null;
+                if (!h || !h.streak) return '';
+                if (h.streak >= 15) return ' <span title="ملك توزيعات — ' + h.streak + ' سنة متصلة" style="color:#facc15">👑</span>';
+                if (h.streak >= 8) return ' <span title="منتظم جداً — ' + h.streak + ' سنة" style="color:#4ade80">⭐</span>';
+                return '';
+              })()}</div>
               <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
                 ${s.sym ? `<span class="co-sym">${s.sym}</span>` : ''}
                 ${s.sector ? `<span class="sec-badge" style="font-size:10px;padding:1px 6px">${s.sector}</span>` : ''}
@@ -7956,8 +7980,19 @@ function renderReturnsTableInner(el, withDiv, fromYahoo) {
                 </div>
                 <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
                   <span style="color:var(--txt-m)">📊 مجموع آخر 12 شهراً:</span>
-                  <span><b style="color:var(--txt)">${(h.ttm || 0).toFixed(2)} ر.س</b> <span style="color:var(--txt-m)">· ${h.count} توزيعاً خلال 5 سنوات</span></span>
+                  <span><b style="color:var(--txt)">${(h.ttm || 0).toFixed(2)} ر.س</b> <span style="color:var(--txt-m)">· ${h.count} توزيعاً${h.firstYear ? ' منذ ' + h.firstYear : ''}</span></span>
                 </div>
+                ${h.streak ? `
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;border-top:1px dashed rgba(148,163,184,.25);margin-top:5px;padding-top:5px">
+                  <span style="color:var(--txt-m)">👑 استمرارية التوزيع:</span>
+                  <span>${h.streak >= 15
+                    ? '<b style="color:#facc15">👑 ملك التوزيعات</b>'
+                    : h.streak >= 8 ? '<b style="color:#4ade80">⭐ منتظم جداً</b>'
+                    : h.streak >= 4 ? '<b style="color:#38bdf8">✅ منتظم</b>'
+                    : '<b style="color:var(--txt-m)">متقطّع</b>'}
+                    <span style="color:var(--txt)"> · ${h.streak} سنة متصلة</span>
+                    ${h.freq ? `<span style="color:var(--txt-m)"> · ${h.freq}</span>` : ''}</span>
+                </div>` : ''}
                 ${!fresh ? '<div style="color:#fbbf24;margin-top:3px">⚠️ لم توزّع منذ أكثر من سنة — تحقّق قبل الاعتماد عليها</div>' : ''}
               </div>`;
           }
