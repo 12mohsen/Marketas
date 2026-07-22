@@ -1676,6 +1676,7 @@ canvas#mdChart{display:block;width:100% !important}
     </div>
     <button id="sniperGoldenBtn" onclick="sniperGolden()" style="display:block;margin:0 auto 12px;background:linear-gradient(135deg,#b8860b,#facc15);color:#1a1a1a;border:none;border-radius:10px;padding:11px 24px;font-size:14px;font-weight:900;cursor:pointer;font-family:inherit">💎 الفرص الذهبية فقط</button>
     <button id="sniperAuditBtn" onclick="sniperAudit()" style="display:none;margin:0 auto 10px;background:var(--surf-alt);border:1px solid rgba(192,132,252,.5);color:#c084fc;border-radius:10px;padding:9px 18px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">🩺 فحص سلامة التحليل (أدمن)</button>
+    <div id="sniperBuildTag" style="display:none;text-align:center;font-size:11px;color:var(--txt-m);margin:0 auto 10px;font-family:monospace"></div>
     <div id="sniperAuditBox" style="display:none;max-width:520px;margin:0 auto 14px;background:var(--surf-alt);border:1px solid var(--bdr);border-radius:12px;padding:14px;text-align:right"></div>
     <button id="sniperStableBtn" onclick="sniperStable()" style="display:block;margin:0 auto 12px;background:var(--surf-alt);border:1px solid rgba(168,85,247,.5);color:#c084fc;border-radius:10px;padding:10px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit">🔁 الأثبت عبر الأيام</button>
     <button id="sniperTgToggle" onclick="tgUnlock()" style="display:none;margin:0 auto 10px;background:var(--surf-alt);border:1px solid var(--bdr);color:var(--txt);border-radius:10px;padding:9px 18px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">🔒 ربط تنبيه تلجرام (أدمن رئيسي)</button>
@@ -2070,8 +2071,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-22-v240';
-console.log('%c[تداول بلس] البناء: 2026-07-22-v240 — 🔥 مؤكِّدات البداية في الرادار (تعالج «الثبات» 59% من الفشل): دفقة حجم ×1.5 · اختراق فعلي لنطاق الانضغاط · حدّ سيولة — مع فلتر «🔥 مؤكّد» وإشارة «دخول مؤكّد»', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-22-v245';
+console.log('%c[تداول بلس] البناء: 2026-07-22-v245 — 🔥 مؤكِّدات البداية في الرادار (تعالج «الثبات» 59% من الفشل): دفقة حجم ×1.5 · اختراق فعلي لنطاق الانضغاط · حدّ سيولة — مع فلتر «🔥 مؤكّد» وإشارة «دخول مؤكّد»', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -9192,6 +9193,7 @@ document.addEventListener('keydown', e => {
   const PRED_DAILY_LIMIT = 10;
   const PRED_CONC = 5;              // عدد الأسهم المُجلبة بالتوازي
   const PRED_CACHE = {};            // sym → شموع OHLCV (سنة/يومي)
+  const _MTF_CACHE = {};            // 🗓️ sym → حكم الأطر (يُحسب من التاريخ الكامل)
   let _symInd = {};                 // 📊 مؤشرات المدى الطويل المحسوبة مسبقاً (symbol → صف)
   let _symIndLoaded = false;
 
@@ -9598,7 +9600,20 @@ document.addEventListener('keydown', e => {
     /* 📈 جرّب القاعدة أولاً (خزّنها الأدمن) — بشرط أن تكون حديثة، وإلا اجلب طازجاً من المصدر */
     try {
       const dbc = await histDbLoad(sym, 25);
-      if (dbc && dbc.length >= 25 && _predDbFresh(dbc)) { const c = dbc.slice(-260); PRED_CACHE[sym] = c; return c; }
+      if (dbc && dbc.length >= 25 && _predDbFresh(dbc)) {
+        /* 🗓️ الأطر الأعلى تُحسب من **التاريخ الكامل قبل الاقتصاص**:
+           الكاش يحتفظ بـ260 شمعة (سنة) وهي تكفي التحليل اليومي، لكنها
+           تعطي 52 أسبوعية فقط و12 شهرية — والشهري يسقط تماماً.
+           فنحسبها هنا مرة واحدة من كل التاريخ (≈1250 شمعة = 5 سنوات)
+           ثم نقتصّ للكاش. بلا تكلفة ذاكرة إضافية ولا إبطاء للمسح. */
+        try {
+          if (typeof _mtfRead === 'function' && dbc.length >= 130) {
+            const _lp = toNum(dbc[dbc.length - 1].c != null ? dbc[dbc.length - 1].c : dbc[dbc.length - 1].close);
+            if (_lp > 0) _MTF_CACHE[sym] = _mtfRead(dbc, _lp);
+          }
+        } catch (e) {}
+        const c = dbc.slice(-260); PRED_CACHE[sym] = c; return c;
+      }
     } catch (e) {}
     const ticker = (sym === 'TASI') ? '^TASI.SR' : sym + '.SR';
     const directUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1y';
@@ -9718,7 +9733,8 @@ document.addEventListener('keydown', e => {
               try { a.trigVol = a.elTrig ? _trigVolRatio(candles, a.elTrig.age || 0) : null; } catch (e) {}   // 🔊 حجم شمعة الزناد
               try { a.liq20 = _liq20(candles); } catch (e) {}                                                // 💧 سيولة يومية نموذجية
               try { a.vwapA = _vwapAnchored(candles, 120); } catch (e) {}                                    // ⚖️ متوسط ما دفعه المشترون
-              try { a.mtf = _mtfRead(candles, a.price); } catch (e) {}                                       // 🗓️ الإطار الأعلى (أسبوعي/شهري)
+              /* 🗓️ الأطر: من التاريخ الكامل إن توفّر، وإلا من شموع الكاش (سنة) */
+              try { a.mtf = _MTF_CACHE[r.sym] || _mtfRead(candles, a.price); } catch (e) {}
               try { a.bars = Array.isArray(candles) ? candles.length : 0; } catch (e) {}   // عمق التاريخ (لوسم السهم الحديث)
               try { const _f = (typeof rows !== 'undefined' && Array.isArray(rows)) ? rows.find(x => x.sym === r.sym) : null; if (_f && _f.eps != null) a.eps = _f.eps; } catch (e) {}   // EPS لقيمة جراهام
               PRED_RESULTS.push(a); ok++;
@@ -10708,6 +10724,15 @@ document.addEventListener('keydown', e => {
     /* 🩺 فحص السلامة: أداة تشخيص داخلية — للأدمن وحده */
     const _auBtn = document.getElementById('sniperAuditBtn');
     if (_auBtn) _auBtn.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'block' : 'none';
+    /* 🏷️ إصدار النسخة الحيّة — يحسم سؤال «هل رُفع الملف؟» بنظرة بدل التخمين.
+       كنّا نستنتجه من غياب ميزة أو ظهورها، وهذا بطيء ومُضلِّل أحياناً. */
+    (function () {
+      const el = document.getElementById('sniperBuildTag');
+      if (!el) return;
+      const adm = (typeof isAdmin === 'function' && isAdmin());
+      el.style.display = adm ? 'block' : 'none';
+      if (adm) el.textContent = '🏷️ النسخة الحيّة: ' + (window.APP_BUILD || 'غير معروفة');
+    })();
     if (SNIPER_GOLDEN) list = list.filter(_snGolden);
     if (SNIPER_STABLE) list = list.filter(_snStable);
     /* 🧩 عنقود التوافق: كم مدرسة تتفق (معرّفة على مستوى الوحدة _snConflCount) */
@@ -11423,7 +11448,12 @@ function _structLevels(ser, price) {
     if (!(res > price) || !(sup < price)) return null;      // السعر خارج النطاق → لا بنية صالحة
     const upPct = (res - price) / price * 100;
     const dnPct = (price - sup) / price * 100;
-    if (upPct < 1.5 || dnPct < 0.8 || dnPct > 22) return null;   // نطاق ضيّق أو مفرط الاتساع
+    /* ⚠️ خطأ صحّحتُه: كنتُ أرفض البنية إن كان الدعم قريباً جداً (dnPct < 0.8) —
+       والحفر العربية فضحته: دعمها 88.35 والسعر 88.50 أي 0.17% فقط، فرُفضت
+       البنية ورجعنا لوقف عام ‑4.99% وع/م 0.9!
+       والصواب أن قرب الدعم **ميزة لا عيب**: الوقف يوضع تحته بهامش، فيصير
+       ‑1.7% لا ‑0.17%. فالفحص يجب أن يكون على الوقف النهائي لا على الدعم الخام. */
+    if (upPct < 1.5 || dnPct > 22) return null;   // لا مساحة ربح · أو نطاق مفرط الاتساع
     return { res: +res.toFixed(2), sup: +sup.toFixed(2), upPct: +upPct.toFixed(1), dnPct: +dnPct.toFixed(1) };
   } catch (e) { return null; }
 }
@@ -11471,7 +11501,8 @@ function _smartTargets(price, hi, lo, ser) {
   /* 🏗️ استبدال بنيوي: الوقف تحت دعم النطاق بهامش، والهدف الأول عند مقاومته */
   let structured = false;
   if (st) {
-    const sSl = +(st.sup * 0.985).toFixed(2);          // هامش تحت الدعم يمنع الخروج بالضجيج
+    /* الوقف تحت الدعم بهامش — ولا يقلّ عن 1.2% من السعر مهما التصق الدعم */
+    const sSl = +Math.min(st.sup * 0.985, p * 0.988).toFixed(2);
     const sT1 = st.res;
     if (sSl < p && sT1 > p) {
       const sRR = (sT1 - p) / (p - sSl);
@@ -12989,10 +13020,20 @@ function _structTrend(bars, look) {
     const a = seg.slice(0, half), b = seg.slice(half);
     const hi = s => Math.max.apply(null, s.map(x => x.h));
     const lo = s => Math.min.apply(null, s.map(x => x.l));
-    const upH = hi(b) > hi(a), upL = lo(b) > lo(a);
-    if (upH && upL) return 'صاعد';
-    if (!upH && !upL) return 'هابط';
-    return 'عرضي';
+    const hA = hi(a), hB = hi(b), lA = lo(a), lB = lo(b);
+    if (!(hA > 0) || !(lA > 0)) return null;
+    /* ↔️ نطاق تسامح 3%: بلا فرق مجهري يُرجّح اتجاهاً وهمياً.
+       سهمٌ قمّته الجديدة أعلى بـ0.4% ليس «صاعداً» بل يراوح مكانه —
+       وإعلان ذلك أصدق من إجبار كل سهم على اتجاه. */
+    const TOL = 0.03;
+    const dH = (hB - hA) / hA, dL = (lB - lA) / lA;
+    const sH = Math.abs(dH) < TOL ? 0 : (dH > 0 ? 1 : -1);
+    const sL = Math.abs(dL) < TOL ? 0 : (dL > 0 ? 1 : -1);
+    if (sH > 0 && sL > 0) return 'صاعد';
+    if (sH < 0 && sL < 0) return 'هابط';
+    if (sH === 0 && sL === 0) return 'عرضي';
+    /* اختلاف الإشارتين = توسّع/انكماش نطاق لا اتجاه واضح */
+    return (sH + sL) > 0 ? 'صاعد' : (sH + sL) < 0 ? 'هابط' : 'عرضي';
   } catch (e) { return null; }
 }
 /* 🧭 الحكم الواحد: يحلّ التعارض بدل أن يعرضه */
@@ -13000,15 +13041,30 @@ function _mtfRead(candles, price) {
   try {
     const wk = _aggBars(candles, 5), mo = _aggBars(candles, 21);
     if (!wk) return null;
-    const ew = elliottCompute(wk, price);
-    const wDir = ew ? (ew.dir === 'up' ? 'صاعد' : 'هابط') : _structTrend(wk, 30);
+    /* 🧱 الاتجاه الأسبوعي بنيوي أولاً (قمم وقيعان) لا عدّ موجات:
+       العدّ على 52 شمعة رقيق ويورث الغموض نفسه الذي نحاول إزالته.
+       والبنية أمتن: «هل القمم والقيعان ترتفع؟» سؤال لا خلاف عليه.
+       ونحتفظ بالحالة الثالثة **عرضي** لأنها حقيقة سوقية لا تردّد. */
+    const wDir = _structTrend(wk, 40);
+    const ew = (wk.length >= 100) ? elliottCompute(wk, price) : null;   // عدّ أسبوعي فقط مع تاريخ يكفيه
     const mTrend = mo ? _structTrend(mo, 24) : null;
-    return { w: wDir, m: mTrend, wConf: ew ? ew.confidence : null, wStage: ew ? ew.stage : null };
+    return { w: wDir || (ew ? (ew.dir === 'up' ? 'صاعد' : 'هابط') : null), m: mTrend, wBars: wk.length, mBars: mo ? mo.length : 0 };
   } catch (e) { return null; }
 }
 function _mtfVerdict(dailyDir, mtf) {
   if (!mtf || !mtf.w) return null;
   const d = dailyDir === 'up' ? 'صاعد' : 'هابط', w = mtf.w;
+  /* ↔️ العرضي حقيقة سوقية لا تردّد — وأغلب الأسهم فيه أغلب الوقت.
+     ويكتسب معناه من الإطار الشهري: مراوحةٌ بعد هبوط ليست كمراوحةٍ بعد صعود.
+     الأولى **قاعدة محتملة**، والثانية **استراحة أو توزيع**. */
+  if (w === 'عرضي') {
+    if (mtf.m === 'هابط') return { k: 'base', ico: '🏗️', c: '#c084fc', rgb: '192,132,252',
+      t: 'قاعدة بعد هبوط', s: 'الشهري هابط والأسبوعي توقّف عن صنع قيعان أدنى — <b>هذه بنية قاعدة، لا انعكاس مؤكَّد</b>. تُتداول حدود النطاق: شراء عند دعمه وخروج عند مقاومته. والانعكاس لا يُعلَن إلا باختراق سقف النطاق بحجم.' };
+    if (mtf.m === 'صاعد') return { k: 'rest', ico: '⏸️', c: '#7dd3fc', rgb: '56,189,248',
+      t: 'استراحة داخل صعود', s: 'الشهري صاعد والأسبوعي يراوح — <b>هضمٌ لمكاسب سابقة</b>. الأرجح استئناف الصعود، والشراء عند دعم النطاق أفضل من مطاردة الاختراق.' };
+    return { k: 'range', ico: '↔️', c: '#c084fc', rgb: '192,132,252',
+      t: 'نطاق عرضي', s: 'الأسبوعي بلا اتجاه — قمم وقيعان متقاربة. <b>تُشترى الحدود لا الاختراقات</b>: ادخل عند دعم النطاق واخرج عند مقاومته، ولا تتوقّع امتداداً.' };
+  }
   if (w === 'صاعد' && d === 'صاعد') return { k: 'sync-up', ico: '✅', c: '#4ade80', rgb: '74,222,128',
     t: 'توافق صاعد', s: 'الإطاران معك — الأسبوعي يقود واليومي يوافقه. أقوى وضع للشراء عند الدعم.' };
   if (w === 'صاعد' && d === 'هابط') return { k: 'pullback', ico: '🔵', c: '#7dd3fc', rgb: '56,189,248',
@@ -13697,13 +13753,30 @@ function marketStockAnalysis(sym, name) {
   /* 🧭 حكم الأطر الزمنية — يُعرض **قبل** الأهداف لأنه يحدّد هل الشراء وارد أصلاً */
   let _mtfBox = '';
   try {
-    const _mt = (typeof _mtfRead === 'function' && _ser) ? _mtfRead(_ser, price) : null;
+    /* 📦 الأولوية للحكم المحسوب أثناء المسح — هناك التاريخ كامل (1250 شمعة).
+       أمّا _ser في النافذة فقد يحمل ~30 شمعة فقط، والتجميع الأسبوعي يحتاج 110+.
+       ولهذا لم يظهر السطر أصلاً رغم رفع النسخة: البيانات لا الكود. */
+    let _mt = null;
+    try {
+      const _pr = (typeof PRED_RESULTS !== 'undefined' && Array.isArray(PRED_RESULTS)) ? PRED_RESULTS.find(x => x && x.sym === sym) : null;
+      if (_pr && _pr.mtf) _mt = _pr.mtf;
+    } catch (e) {}
+    if (!_mt && typeof _mtfRead === 'function' && _ser && _ser.length >= 130) _mt = _mtfRead(_ser, price);
     if (_mt) {
       let _dDir = 'up';
-      try { const _ed = elliottCompute(_ser, price); if (_ed) _dDir = _ed.dir; } catch (e) {}
+      try {
+        const _pr2 = (typeof PRED_RESULTS !== 'undefined' && Array.isArray(PRED_RESULTS)) ? PRED_RESULTS.find(x => x && x.sym === sym) : null;
+        if (_pr2 && _pr2.elDir) _dDir = _pr2.elDir;
+        else if (_ser) { const _ed = elliottCompute(_ser, price); if (_ed) _dDir = _ed.dir; }
+      } catch (e) {}
       _mtfBox = _mtfHTML(_dDir, _mt);
     }
   } catch (e) {}
+  /* 🔄 إن لم يتوفّر الحكم (لم يُمسح بعد، أو كاش النافذة قصير) نضع مكاناً
+     ونجلب التاريخ الكامل من القاعدة بعد الفتح. ميزةُ عرضٍ يجب ألّا تشترط
+     مسحاً — ربطُها بالمسح كان تصميماً هشّاً منّي. */
+  const _mtfSlotId = 'mtfSlot-' + sym + '-' + Date.now();
+  if (!_mtfBox) _mtfBox = '<div id="' + _mtfSlotId + '"></div>';
   // عرض التحليل في نافذة منبثقة
   const overlayId = 'market-analysis-' + Date.now();
   const overlay = document.createElement('div');
@@ -13776,6 +13849,20 @@ function marketStockAnalysis(sym, name) {
   `;
 
   document.body.appendChild(overlay);
+  /* 🗓️ تعبئة حكم الأطر لاحقاً من التاريخ الكامل — بلا انتظار مسح */
+  (async function () {
+    try {
+      const slot = document.getElementById(_mtfSlotId);
+      if (!slot || typeof histDbLoad !== 'function' || typeof _mtfRead !== 'function') return;
+      const full = await histDbLoad(sym, 25);
+      if (!full || full.length < 130) return;
+      const mt = _mtfRead(full, price);
+      if (!mt || !mt.w) return;
+      let dDir = 'up';
+      try { const ed = elliottCompute(full, price); if (ed) dDir = ed.dir; } catch (e) {}
+      slot.innerHTML = _mtfHTML(dDir, mt);
+    } catch (e) {}
+  })();
   setTimeout(() => {
     overlay.style.opacity = '1';
     overlay.querySelector('.market-analysis-modal').style.transform = 'scale(1)';
