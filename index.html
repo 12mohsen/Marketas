@@ -1679,6 +1679,17 @@ canvas#mdChart{display:block;width:100% !important}
     <div id="sniperBuildTag" style="display:none;text-align:center;font-size:11px;color:var(--txt-m);margin:0 auto 10px;font-family:monospace"></div>
     <div id="sniperAuditBox" style="display:none;max-width:520px;margin:0 auto 14px;background:var(--surf-alt);border:1px solid var(--bdr);border-radius:12px;padding:14px;text-align:right"></div>
     <button id="sniperStableBtn" onclick="sniperStable()" style="display:block;margin:0 auto 12px;background:var(--surf-alt);border:1px solid rgba(168,85,247,.5);color:#c084fc;border-radius:10px;padding:10px 22px;font-size:13.5px;font-weight:800;cursor:pointer;font-family:inherit">🔁 الأثبت عبر الأيام</button>
+    <div id="sniperBaseBar" style="display:none;max-width:520px;margin:0 auto 12px">
+      <div style="font-size:12px;color:var(--txt-m);text-align:center;margin-bottom:7px;font-weight:700">🧱 أسهم بنت قاعدة — اختر الإطار أو التركيبة</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">
+        <button data-basebtn="day"  data-baselabel="📅 يومي"          onclick="sniperBase('day')"  style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">📅 يومي</button>
+        <button data-basebtn="wk"   data-baselabel="🗓️ أسبوعي"        onclick="sniperBase('wk')"   style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">🗓️ أسبوعي</button>
+        <button data-basebtn="mo"   data-baselabel="📆 شهري"          onclick="sniperBase('mo')"   style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">📆 شهري</button>
+        <button data-basebtn="wkmo" data-baselabel="🗓️📆 أسبوعي+شهري" onclick="sniperBase('wkmo')" style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">🗓️📆 أسبوعي+شهري</button>
+        <button data-basebtn="all"  data-baselabel="🧱 الثلاثة معاً"   onclick="sniperBase('all')"  style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">🧱 الثلاثة معاً</button>
+        <button data-basebtn="any"  data-baselabel="✳️ أيّ إطار"       onclick="sniperBase('any')"  style="background:var(--surf-alt);border:1px solid rgba(245,158,11,.4);color:#fbbf24;border-radius:18px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit">✳️ أيّ إطار</button>
+      </div>
+    </div>
     <button id="sniperTgToggle" onclick="tgUnlock()" style="display:none;margin:0 auto 10px;background:var(--surf-alt);border:1px solid var(--bdr);color:var(--txt);border-radius:10px;padding:9px 18px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit">🔒 ربط تنبيه تلجرام (أدمن رئيسي)</button>
     <div id="sniperTgBox" style="display:none;max-width:460px;margin:0 auto 14px;background:var(--surf-alt);border:1px solid var(--bdr);border-radius:12px;padding:14px;text-align:right">
       <div style="font-size:13px;font-weight:800;margin-bottom:10px">🔔 تنبيه الفرص الذهبية عبر تلجرام</div>
@@ -2071,8 +2082,8 @@ function toggleDisclaimer(){
    نسخة الكود — للتحقق السريع أن المتصفح
    يشغّل أحدث نسخة من الملف (افحص الكونسول)
 ───────────────────────────────────── */
-window.APP_BUILD = '2026-07-22-v247';
-console.log('%c[تداول بلس] البناء: 2026-07-22-v247 — 🔥 مؤكِّدات البداية في الرادار (تعالج «الثبات» 59% من الفشل): دفقة حجم ×1.5 · اختراق فعلي لنطاق الانضغاط · حدّ سيولة — مع فلتر «🔥 مؤكّد» وإشارة «دخول مؤكّد»', 'color:#7c3aed;font-weight:bold;font-size:14px');
+window.APP_BUILD = '2026-07-23-v250';
+console.log('%c[تداول بلس] البناء: 2026-07-23-v250 — 🔥 مؤكِّدات البداية في الرادار (تعالج «الثبات» 59% من الفشل): دفقة حجم ×1.5 · اختراق فعلي لنطاق الانضغاط · حدّ سيولة — مع فلتر «🔥 مؤكّد» وإشارة «دخول مؤكّد»', 'color:#7c3aed;font-weight:bold;font-size:14px');
 
 /* ─────────────────────────────────────
    CONFIG
@@ -10432,6 +10443,54 @@ document.addEventListener('keydown', e => {
   let SNIPER_SEARCH = '';
   let SNIPER_GOLDEN = false;
   let SNIPER_STABLE = false;
+  let SNIPER_BASE = '';   // 🧱 تركيبة القاعدة: '' | day | wk | mo | wkmo | all | any
+  /* ══════════════════════════════════════════════════════════════════
+     🧱 قاعدة على الأطر الثلاثة — يومي + أسبوعي + شهري
+     «القاعدة» = استقرار عرضيّ بعد حركة: السهم توقّف عن صنع قيعان أدنى
+     وينضغط استعداداً لحركة تالية. اجتماعها على الأطر الثلاثة نادرٌ
+     وقويّ: يعني أن البيع نضب على كل المستويات الزمنية.
+       • اليومي: انضغاط النطاق (bwPct منخفض) أو قاعدة تراكم مرصودة
+       • الأسبوعي والشهري: اتجاه «عرضي» (لا صاعد ولا هابط)
+     ونميّز القاعدة **بعد هبوط** (تجميع محتمل) عن القاعدة **بعد صعود**
+     (قد تكون توزيعاً) — فنعرض الشهري ليقرأ المستخدم السياق.
+     ══════════════════════════════════════════════════════════════════ */
+  /* 🧱 قاعدة كل إطار على حدة — ثم نركّبها كيف شئنا */
+  function _snBaseFrames(r) {
+    if (!r) return null;
+    const si = (typeof _symInd !== 'undefined' && _symInd[r.sym]) ? _symInd[r.sym] : null;
+    const day = (r.bwPct != null && r.bwPct < 0.28) || !!(si && si.base_flag);   // انضغاط يومي
+    const wk = !!(r.mtf && r.mtf.w === 'عرضي');                                   // عرضي أسبوعي
+    const mo = !!(r.mtf && r.mtf.m === 'عرضي');                                   // عرضي شهري
+    const priorMo = si && si.trend ? si.trend : null;
+    return {
+      day, wk, mo,
+      n: (day ? 1 : 0) + (wk ? 1 : 0) + (mo ? 1 : 0),
+      context: priorMo === 'down' ? 'تجميع بعد هبوط' : priorMo === 'up' ? 'استراحة بعد صعود' : 'قاعدة',
+      good: priorMo !== 'up',
+    };
+  }
+  /* التركيبة المطلوبة — SNIPER_BASE:
+     '' معطّل · day · wk · mo · wk+mo (أسبوعي وشهري) · all (الثلاثة) · any (أيّ إطار) */
+  function _snBaseMatch(r, mode) {
+    const f = _snBaseFrames(r); if (!f) return null;
+    let ok = false;
+    switch (mode) {
+      case 'day': ok = f.day; break;
+      case 'wk':  ok = f.wk; break;
+      case 'mo':  ok = f.mo; break;
+      case 'wkmo': ok = f.wk && f.mo; break;
+      case 'all': ok = f.day && f.wk && f.mo; break;
+      case 'any': ok = f.n > 0; break;
+    }
+    return ok ? f : null;
+  }
+  /* للشارة داخل البطاقة: أقوى تركيبة تحقّقت */
+  function _snTriBase(r) {
+    const f = _snBaseFrames(r);
+    if (!f || f.n < 2) return null;   // شارة فقط عند إطارين فأكثر
+    const frames = [f.day ? 'يومي' : null, f.wk ? 'أسبوعي' : null, f.mo ? 'شهري' : null].filter(Boolean);
+    return { n: f.n, frames: frames.join(' · '), context: f.context, good: f.good, all: f.n === 3 };
+  }
   let SNIPER_EXEC = '';   // 🚦 فلتر حالة التنفيذ: '' | now | wait | gone | tight
   window.sniperExec = function (k) {
     SNIPER_EXEC = (SNIPER_EXEC === k) ? '' : k;   // الضغط على النشط يُلغيه
@@ -10577,6 +10636,17 @@ document.addEventListener('keydown', e => {
       + row('📏', 'مطابقة ضعيفة (<45%)', cnt.lowFit, 50, false, [], 'العدّ مفروض على البيانات لا نابع منها')
       + row('🛑', 'خطط مكتومة (غير صالحة)', cnt.dead, 60, false, ex.dead, 'أرقامها أُخفيت عن المستخدم حمايةً له')
       + '<div style="font-size:11px;color:var(--txt-m);margin-top:9px;line-height:1.8">💡 <b>كيف تقرأها:</b> ارتفاع «شبه خيالي» أو «يكسر قاعدة» فوق حدّه <b>ليس حكماً على السوق</b> بل إشارة إلى أن اختيار المحور يحتاج ضبطاً. أمّا «فات أوانه» فطبيعي أن يرتفع في سوق متقلّب. <b>أرسل لي هذه الأرقام وأضبط المحرّك عليها.</b></div>';
+  };
+  window.sniperBase = function (mode) {
+    SNIPER_BASE = (SNIPER_BASE === mode) ? '' : mode;   // الضغط على النشط يُلغيه
+    document.querySelectorAll('[data-basebtn]').forEach(el => {
+      const on = el.getAttribute('data-basebtn') === SNIPER_BASE;
+      el.style.background = on ? 'linear-gradient(135deg,#b45309,#f59e0b)' : 'var(--surf-alt)';
+      el.style.color = on ? '#fff' : '#fbbf24';
+      el.style.borderColor = on ? '#f59e0b' : 'rgba(245,158,11,.4)';
+    });
+    try { sniperRender(); } catch (e) {}
+    try { const el = document.getElementById('sniperList'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
   };
   window.sniperStable = function () {
     SNIPER_STABLE = !SNIPER_STABLE;
@@ -10742,6 +10812,30 @@ document.addEventListener('keydown', e => {
     const _stBtn = document.getElementById('sniperStableBtn');
     if (_stBtn) _stBtn.style.display = _stOK ? 'block' : 'none';
     if (!_stOK) SNIPER_STABLE = false;
+    /* 🧱 شريط القاعدة يتبع صلاحية «الأثبت» نفسها (ميزة تحليلية) */
+    const _tbBar = document.getElementById('sniperBaseBar');
+    if (_tbBar) _tbBar.style.display = _stOK ? 'block' : 'none';
+    if (!_stOK) SNIPER_BASE = '';
+    /* 🔢 عدّاد على كل زرّ إطار — يُحسب على قائمة القنّاص كاملةً (قبل فلتر القاعدة)
+       فيبقى العدد ثابتاً مهما اخترت، وتعرف بنظرة أين توجد الأسهم. */
+    if (_stOK && _tbBar) {
+      const _baseAll = (Array.isArray(PRED_RESULTS) ? PRED_RESULTS : []).filter(r => r && r.elPlan && r.elPlan.rr);
+      const _bc = { day: 0, wk: 0, mo: 0, wkmo: 0, all: 0, any: 0 };
+      _baseAll.forEach(r => {
+        const f = _snBaseFrames(r); if (!f) return;
+        if (f.day) _bc.day++;
+        if (f.wk) _bc.wk++;
+        if (f.mo) _bc.mo++;
+        if (f.wk && f.mo) _bc.wkmo++;
+        if (f.day && f.wk && f.mo) _bc.all++;
+        if (f.n > 0) _bc.any++;
+      });
+      _tbBar.querySelectorAll('[data-basebtn]').forEach(el => {
+        const k = el.getAttribute('data-basebtn'), n = _bc[k] || 0;
+        el.innerHTML = el.getAttribute('data-baselabel') + ' <b style="color:' + (n ? '#fde68a' : 'var(--txt-m)') + '">(' + n + ')</b>';
+        el.style.opacity = n ? '1' : '0.55';
+      });
+    }
     /* 🩺 فحص السلامة: أداة تشخيص داخلية — للأدمن وحده */
     const _auBtn = document.getElementById('sniperAuditBtn');
     if (_auBtn) _auBtn.style.display = (typeof isAdmin === 'function' && isAdmin()) ? 'block' : 'none';
@@ -10756,6 +10850,7 @@ document.addEventListener('keydown', e => {
     })();
     if (SNIPER_GOLDEN) list = list.filter(_snGolden);
     if (SNIPER_STABLE) list = list.filter(_snStable);
+    if (SNIPER_BASE) list = list.filter(r => !!_snBaseMatch(r, SNIPER_BASE));
     /* 🧩 عنقود التوافق: كم مدرسة تتفق (معرّفة على مستوى الوحدة _snConflCount) */
     const _snCount = _snConflCount;
     const _snYoung = r => !!(r.bars && r.bars < 240);   // أقل من ~سنة تداول → تاريخ غير كافٍ
@@ -10779,6 +10874,13 @@ document.addEventListener('keydown', e => {
     /* 🛡️ حارس: لو أفرغ الفلتر القائمة (بعد تحديث بيانات مثلاً) نُلغيه بدل عرض شاشة فارغة محيّرة */
     if (SNIPER_EXEC && !list.length) { SNIPER_EXEC = ''; try { sniperRender(); } catch (e) {} return; }
     if (!list.length) {
+      if (SNIPER_BASE && !SNIPER_GOLDEN) {
+        const lbl = { day: 'اليومي', wk: 'الأسبوعي', mo: 'الشهري', wkmo: 'الأسبوعي والشهري معاً', all: 'الأطر الثلاثة معاً', any: 'أيّ إطار' }[SNIPER_BASE] || '';
+        wrap.innerHTML = '<div style="text-align:center;padding:44px 20px;color:var(--txt-m)"><div style="font-size:42px;margin-bottom:12px">🧱</div>' +
+          '<div style="font-size:17px;font-weight:800;margin-bottom:8px;color:#fbbf24">لا سهم بنى قاعدة على ' + lbl + ' الآن</div>' +
+          '<div style="font-size:13.5px;line-height:2;max-width:540px;margin:0 auto">جرّب إطاراً أوسع (كـ«📅 يومي» أو «✳️ أيّ إطار»)، أو عُد بعد المسح التالي. كلّما ضاقت التركيبة قلّت النتائج وزادت قوّتها.</div></div>';
+        return;
+      }
       if (SNIPER_STABLE && !SNIPER_GOLDEN) {
         wrap.innerHTML = '<div style="text-align:center;padding:44px 20px;color:var(--txt-m)"><div style="font-size:42px;margin-bottom:12px">🔁</div>' +
           '<div style="font-size:17px;font-weight:800;margin-bottom:8px;color:#c084fc">لا يوجد سهم ثابت التحليل بعد</div>' +
@@ -10966,6 +11068,15 @@ document.addEventListener('keydown', e => {
               + head + (tip ? ' <span style="opacity:.65">ⓘ</span>' : '') + '</span>';
           };
           if (r.bars && r.bars < 240) b += chip('rgba(251,146,60,.15)', 'rgba(251,146,60,.5)', '#fb923c', '🌱 سهم حديث · ' + r.bars + ' شمعة — تاريخ غير كافٍ، إشارات أقل موثوقية');
+          /* 🧱 قاعدة عبر الأطر — تُعرض أولاً (إطاران فأكثر) */
+          (function () {
+            const tb = _snTriBase(r);
+            if (!tb) return;
+            const head = tb.all ? '🧱 قاعدة على الأطر الثلاثة' : '🧱 قاعدة (' + tb.frames + ')';
+            b += tb.good
+              ? chip('rgba(245,158,11,.16)', 'rgba(245,158,11,.55)', '#fbbf24', head + ' — ' + tb.context)
+              : chip('rgba(148,163,184,.14)', 'rgba(148,163,184,.4)', '#cbd5e1', head + ' — ' + tb.context + ' · احذر التوزيع');
+          })();
           /* 🧭 حكم الأطر: هل اليومي يعمل مع الأسبوعي أم ضدّه؟ */
           (function () {
             if (!r.mtf || typeof _mtfVerdict !== 'function') return;
